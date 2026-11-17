@@ -111,6 +111,83 @@ class SessionEndDetector {
 }
 
 /**
+ * Spots when the Proxy has shut itself down to cool off, so the watch can say "wait".
+ *
+ * The Proxy has no readable overheat flag. What it does when too hot (seen on the real
+ * device): it acknowledges a start but never begins preheating, then turns itself off, which
+ * drops the Bluetooth link; it comes back in sleep. So a cool-down starts when:
+ *  - a start was sent but preheat or active doesn't appear within [REFUSE_MS], or
+ *  - the link drops while starting or heating, or
+ *  - it goes from heating straight to off/sleep without a stop from Puffble.
+ * Pure logic, unit tested.
+ */
+class CooldownDetector(private val durationMs: Long = 120_000L) {
+    var untilMs: Long? = null
+        private set
+    private var startSentAt: Long? = null
+    private var lastState: Int? = null
+
+    fun onStartSent(now: Long) {
+        startSentAt = now
+    }
+
+    /** Feed every poll. Returns true if the cool-down started or ended. */
+    fun onPoll(state: Int, now: Long, abortedRecently: Boolean): Boolean {
+        val prev = lastState
+        lastState = state
+        if (state == OperatingState.PREHEAT || state == OperatingState.ACTIVE) {
+            startSentAt = null
+            return clear()  // heating again (the user skipped the wait): the cool-down is over
+        }
+        val sent = startSentAt
+        if (sent != null && now - sent > REFUSE_MS) {
+            startSentAt = null
+            return trigger(now)
+        }
+        val wasHeating = prev == OperatingState.PREHEAT || prev == OperatingState.ACTIVE
+        if (wasHeating && (state == OFF || state == SLEEP) && !abortedRecently) return trigger(now)
+        return expire(now)
+    }
+
+    /** The Bluetooth link dropped. Returns true if that started a cool-down. */
+    fun onLinkLost(now: Long): Boolean {
+        val heating = lastState == OperatingState.PREHEAT || lastState == OperatingState.ACTIVE
+        val starting = startSentAt?.let { now - it < LINK_LOSS_AFTER_START_MS } == true
+        lastState = null
+        startSentAt = null
+        return if (heating || starting) trigger(now) else false
+    }
+
+    fun expire(now: Long): Boolean {
+        val until = untilMs ?: return false
+        if (now < until) return false
+        untilMs = null
+        return true
+    }
+
+    fun clear(): Boolean {
+        val had = untilMs != null
+        untilMs = null
+        return had
+    }
+
+    fun remainingS(now: Long): Int? = untilMs?.let { ((it - now + 999) / 1000).toInt().coerceAtLeast(0) }
+
+    private fun trigger(now: Long): Boolean {
+        if (untilMs != null) return false
+        untilMs = now + durationMs
+        return true
+    }
+
+    companion object {
+        const val REFUSE_MS = 4_000L
+        const val LINK_LOSS_AFTER_START_MS = 30_000L
+        const val OFF = 3
+        const val SLEEP = 4
+    }
+}
+
+/**
  * The single shared connection to the Proxy. The activity and the watch link both
  * "hold" it; it connects when the first holder arrives and disconnects when the last leaves.
  */
@@ -129,6 +206,11 @@ object ProxySession {
         val batterySoc: Long? = null,
         /** Seconds left in the active phase, or null if unknown / not active. */
         val remainS: Int? = null,
+        /** Seconds left of a suggested cool-down after the Proxy shut itself off; null if none. */
+        val cooldownRemainS: Int? = null,
+        val cooldownReason: String = "",
+        /** Last heater reading, kept through a disconnect so the cool-down screen can show it. */
+        val lastHeaterDeciC: Long? = null,
     ) {
         val currentProfile: ProfileInfo? get() = live?.let { profiles.getOrNull(it.profile) }
     }
@@ -138,6 +220,8 @@ object ProxySession {
     // Shown on the watch while searching; written for someone looking at their wrist.
     const val NEEDS_PERMISSION = "Open the Puffble companion app and allow Nearby Devices Permissions"
     const val NEEDS_DEVICE = "Open the Puffble companion app and choose your Proxy"
+    const val TOO_HOT = "Your Proxy shut off to cool down"
+    const val LOW_BATTERY = "Your Proxy's battery may be too low. Charge it"
     private const val LINGER_MS = 120_000L
     private val HEATING_STATES = setOf(OperatingState.PREHEAT, OperatingState.ACTIVE, OperatingState.FADE)
     private const val DONE_SHOW_MS = 6_000L
@@ -151,6 +235,42 @@ object ProxySession {
 
     private val _snapshot = MutableStateFlow(Snapshot())
     val snapshot: StateFlow<Snapshot> = _snapshot
+
+    const val COOLDOWN_S = 120
+    private val cooldown = CooldownDetector(COOLDOWN_S * 1000L)
+    private var cooldownReason = ""
+    private var lastHeater: Long? = null
+    private var lastBatterySoc: Long? = null
+    private var cooldownTicker: Job? = null
+
+    /** Publishes a snapshot with the cool-down state attached. */
+    private var published: Snapshot
+        get() = _snapshot.value
+        set(v) {
+            _snapshot.value = v.copy(
+                cooldownRemainS = cooldown.remainingS(now()),
+                cooldownReason = cooldownReason,
+                lastHeaterDeciC = v.live?.heaterDeciC ?: lastHeater,
+            )
+        }
+
+    private fun onCooldownChanged() {
+        cooldownReason = if ((lastBatterySoc ?: 10_000) < 1_000) LOW_BATTERY else TOO_HOT
+        Log.i(TAG, "cool-down ${if (cooldown.untilMs != null) "started" else "ended"}")
+        published = _snapshot.value
+        cooldownTicker?.cancel()
+        val left = cooldown.remainingS(now()) ?: return
+        // Republish when it runs out, even if the Proxy is still unreachable.
+        cooldownTicker = scope.launch {
+            delay(left * 1000L + 200)
+            if (cooldown.expire(now())) published = _snapshot.value
+        }
+    }
+
+    /** The watch's "Hold SELECT to skip". */
+    fun skipCooldown() {
+        scope.launch { if (cooldown.clear()) onCooldownChanged() }
+    }
 
     /** A heat cycle the phone watched run to completion (active → fade). */
     data class SessionDone(val profileName: String, val targetDeciC: Long, val durationTicks: Long, val endedAtMs: Long)
@@ -213,7 +333,7 @@ object ProxySession {
         client?.close()
         client = null
         timer.reset()
-        _snapshot.value = Snapshot()
+        published = Snapshot()
     }
 
     suspend fun selectProfile(index: Int) {
@@ -227,6 +347,7 @@ object ProxySession {
         // The real device state: the snapshot may be showing a brief synthetic "done".
         if (deviceState != OperatingState.IDLE) throw IOException("Proxy is not idle")
         c.startHeatCycle()
+        cooldown.onStartSent(now())
         kick.trySend(Unit)
     }
 
@@ -248,7 +369,7 @@ object ProxySession {
                 }
                 val device = ProxyDevices.resolve(app)
                     ?: throw IOException(NEEDS_DEVICE)
-                _snapshot.value = Snapshot(Link.Connecting)
+                published = Snapshot(Link.Connecting)
                 timer.reset()
                 val c = ProxyClient(app)
                 client = c
@@ -268,6 +389,9 @@ object ProxySession {
                     val durationS = dev.proxywatch.companion.lorax.Units.ticksToSeconds(device.durationTicks)
                     val remain = timer.update(device.operatingState, durationS, now())
                     val aborted = now() - lastAbortAt < ABORT_WINDOW_MS
+                    lastHeater = device.heaterDeciC
+                    lastBatterySoc = battery
+                    if (cooldown.onPoll(device.operatingState, now(), aborted)) onCooldownChanged()
                     if (ends.update(device.operatingState, remain, aborted)) {
                         _sessions.tryEmit(
                             SessionDone(
@@ -292,7 +416,7 @@ object ProxySession {
                         profiles = (0..3).map { c.readProfile(it) }
                         profilesAt = now()
                     }
-                    _snapshot.value = Snapshot(
+                    published = Snapshot(
                         link = Link.Ready,
                         live = live,
                         profiles = profiles,
@@ -307,9 +431,10 @@ object ProxySession {
             } catch (e: Exception) {
                 failures++
                 Log.w(TAG, "link attempt $failures failed: ${e.message}")
+                if (cooldown.onLinkLost(now())) onCooldownChanged()
                 client?.close()
                 client = null
-                _snapshot.value = Snapshot(Link.Error(e.message ?: "connection failed"))
+                published = Snapshot(Link.Error(e.message ?: "connection failed"))
             }
             // Retry quickly a few times (a refused reconnect usually succeeds a moment later), then back off.
             delay(if (failures <= 3) 1_000 else 3_000)

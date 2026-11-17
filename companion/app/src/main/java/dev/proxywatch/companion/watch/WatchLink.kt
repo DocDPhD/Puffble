@@ -137,6 +137,7 @@ object WatchBridge {
         val d = mutableMapOf<UInt, PebbleDictionaryItem>(
             Key.STATE to PebbleDictionaryItem.UInt8(m.state),
             Key.STATUS_TEXT to PebbleDictionaryItem.Text(m.statusText),
+        Key.REMAIN_S to PebbleDictionaryItem.Int16(m.remainS.toShort()),
         )
         if (m.state != WatchProtocol.STATE_SEARCHING) {
             d += mapOf(
@@ -145,7 +146,6 @@ object WatchBridge {
                 Key.TARGET_F to PebbleDictionaryItem.UInt16(m.targetF),
                 Key.DURATION_S to PebbleDictionaryItem.UInt16(m.durationS),
                 Key.HEATER_F to PebbleDictionaryItem.UInt16(m.heaterF),
-                Key.REMAIN_S to PebbleDictionaryItem.Int16(m.remainS.toShort()),
                 Key.BATT_PCT to PebbleDictionaryItem.UInt8(m.battPct),
                 Key.RING_RGB to PebbleDictionaryItem.UInt32(m.ringRgb.toLong()),
             )
@@ -201,6 +201,7 @@ class WatchListenerService : BasePebbleListenerService() {
                 Command.StartHeat -> ProxySession.startHeatCycle()
                 Command.AbortHeat -> ProxySession.abortHeatCycle()
                 is Command.SelectProfile -> ProxySession.selectProfile(command.index)
+                Command.SkipCooldown -> ProxySession.skipCooldown()
                 null -> return ReceiveResult.Nack
             }
         } catch (e: CancellationException) {

@@ -10,5 +10,9 @@ First public release.
 - Pebble Round 2 and Pebble Time 2 layouts; progress shown as a ring or along the screen edge.
 - Settings on the watch: °F/°C, session alerts, button buzz, light always on, animations,
   timeline pins and backlight color (Time 2).
-- "Session done" timeline pins.
+- "Session done" timeline pins, an "All done" screen and an end-of-session alert.
+- Cool-down screen: when the Proxy shuts itself off to cool, the watch shows the temperature and a
+  2-minute gauge (hold Select to skip).
+- On round watches the button hint curves along the bottom edge.
+- The phone app is a simple setup checklist: allow Nearby devices, choose your Proxy, open Puffble on the watch.
 - The phone keeps the Proxy link through a heat cycle, so reopening the watch app mid-session is instant.

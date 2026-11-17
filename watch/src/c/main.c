@@ -7,6 +7,7 @@
 //   Idle:            UP/DOWN change profile (shown at once, error if the Proxy refuses)
 //                    SELECT opens Confirm;  HOLD UP opens Settings;  BACK twice exits
 //   Confirm:         HOLD SELECT starts heating, BACK cancels
+//   Cooling off:     HOLD SELECT skips the suggested wait
 //   Preheat/Session: HOLD SELECT stops (holding BACK exits the app on the Round 2)
 //
 // Message contract: WatchProtocol.kt in the companion and "messageKeys" in package.json.
@@ -22,11 +23,13 @@
 #define STATE_PREHEAT 7
 #define STATE_ACTIVE 8
 #define STATE_FADE 9
+#define STATE_COOLDOWN 254  // phone-made: the Proxy shut itself off to cool
 #define STATE_SEARCHING 255
 
 #define CMD_START 1
 #define CMD_ABORT 2
 #define CMD_REFRESH 3
+#define CMD_SKIP_COOLDOWN 4
 
 #define REFRESH_RETRY_MS 3000
 #define ECHO_TIMEOUT_MS 4000
@@ -248,6 +251,11 @@ static const char *const SPARKLE[] = {
     "...XXX......", "....X.......", "....X.......",
 };
 
+static const char *const SNOWFLAKE[] = {
+    ".....X.....", "..X..X..X..", "...X.X.X...", "....XXX....", ".X...X...X.", "XXXXXXXXXXX",
+    ".X...X...X.", "....XXX....", "...X.X.X...", "..X..X..X..", ".....X.....",
+};
+
 typedef struct {
   const char *const *rows;
   int h;
@@ -412,7 +420,7 @@ static void prv_send_cmd(int cmd) {
   // Refresh also carries the settings, so the phone knows them from the start.
   if (cmd == CMD_REFRESH) s_settings_dirty = false;
   if (!prv_send_dict(kind, MESSAGE_KEY_CMD, (uint8_t)cmd, cmd == CMD_REFRESH) && cmd != CMD_REFRESH) {
-    prv_show_error(cmd == CMD_START ? "Start failed" : "Stop failed");
+    prv_show_error(cmd == CMD_START ? "Start failed" : cmd == CMD_ABORT ? "Stop failed" : "Couldn't reach phone");
   }
 }
 
@@ -554,6 +562,12 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     }
   }
 
+  if (s_state == STATE_COOLDOWN && prev != STATE_COOLDOWN) {
+    light_enable_interaction();
+    prv_vibe_double();
+    if (s_status[0]) prv_toast(s_status, ERROR_SHOW_MS);
+  }
+
   // The system drops the tint on notifications, so re-apply on every message.
   prv_apply_backlight_tint();
   prv_redraw();
@@ -577,7 +591,7 @@ static void prv_tip_timer(void *ctx) {
 }
 
 static void prv_tick(struct tm *tick_time, TimeUnits changed) {
-  if (prv_ready() && s_state == STATE_ACTIVE) prv_redraw();
+  if (prv_ready() && (s_state == STATE_ACTIVE || s_state == STATE_COOLDOWN)) prv_redraw();
 }
 
 static void prv_focus(bool in_focus) {
@@ -587,7 +601,7 @@ static void prv_focus(bool in_focus) {
 
 // ---- view ------------------------------------------------------------------------
 
-typedef enum { ICON_NONE, ICON_FLAME, ICON_FLAME_FLICKER, ICON_CHECK, ICON_SPARKLE, ICON_DOTS } Icon;
+typedef enum { ICON_NONE, ICON_FLAME, ICON_FLAME_FLICKER, ICON_CHECK, ICON_SPARKLE, ICON_DOTS, ICON_SNOW } Icon;
 
 // Every page has the same four text roles, each in one fixed font, so sizes never jump:
 //   hero    big pixel text (or Gothic 28 for characters the pixel font lacks)
@@ -682,6 +696,24 @@ static void prv_build_view(View *v, bool confirm) {
       snprintf(v->sub, sizeof(v->sub), "Enjoy!");
       snprintf(v->detail, sizeof(v->detail), "Heater %d" DEG "%s", prv_temp(s_heater_f), u);
       snprintf(v->hint, sizeof(v->hint), "Hold SELECT to stop");
+      break;
+    }
+    case STATE_COOLDOWN: {
+      // Icy page whatever the profile: the gauge drains over the suggested wait.
+#ifdef PBL_COLOR
+      v->bg = GColorFromHEX(0x55AAFF);
+      v->fg = GColorBlack;
+#endif
+      v->icon = ICON_SNOW;
+      const int left = prv_remaining_now();
+      if (s_heater_f) snprintf(v->hero, sizeof(v->hero), "%d" PX_DEG, prv_temp(s_heater_f));
+      else snprintf(v->hero, sizeof(v->hero), "Cool");
+      snprintf(v->sub, sizeof(v->sub), "Cooling off");
+      if (left > 0) snprintf(v->detail, sizeof(v->detail), "Try again in %d:%02d", left / 60, left % 60);
+      else snprintf(v->detail, sizeof(v->detail), "Ready to try again");
+      snprintf(v->hint, sizeof(v->hint), "Hold SELECT to skip");
+      v->arc = (s_duration_s && left > 0) ? (int32_t)left * 1000 / s_duration_s : 0;
+      if (v->arc > 1000) v->arc = 1000;
       break;
     }
     case STATE_FADE:
@@ -952,6 +984,7 @@ static void prv_draw_page(GContext *ctx, GRect full, const View *vp, bool confir
     case ICON_FLAME_FLICKER: sprite = ((s_frame / 2) % 2) ? SPRITE(FLAME_B) : SPRITE(FLAME_A); break;
     case ICON_CHECK: sprite = SPRITE(CHECK); break;
     case ICON_SPARKLE: sprite = SPRITE(SPARKLE); break;
+    case ICON_SNOW: sprite = SPRITE(SNOWFLAKE); break;
     case ICON_DOTS: case ICON_NONE: break;
   }
   const int icon_h = v.icon == ICON_DOTS ? 3 * icon_scale : v.icon == ICON_NONE ? 0 : sprite.h * icon_scale;
@@ -1190,9 +1223,14 @@ static void prv_up_long(ClickRecognizerRef r, void *ctx) {
 
 static void prv_select(ClickRecognizerRef r, void *ctx) {
   if (prv_ready() && s_state == STATE_IDLE) window_stack_push(s_confirm_window, true);
+  else if (prv_ready() && s_state == STATE_COOLDOWN) prv_toast("Cooling off. Hold SELECT to skip", 2000);
 }
 
 static void prv_select_long(ClickRecognizerRef r, void *ctx) {
+  if (prv_ready() && s_state == STATE_COOLDOWN) {
+    prv_send_cmd(CMD_SKIP_COOLDOWN);
+    return;
+  }
   if (!prv_heating()) return;
   prv_send_cmd(CMD_ABORT);
   prv_vibe_short();

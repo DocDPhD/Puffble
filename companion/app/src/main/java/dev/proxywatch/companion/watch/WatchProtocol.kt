@@ -61,6 +61,9 @@ object WatchProtocol {
     /** STATE value sent while the phone has no working link to the Proxy. */
     const val STATE_SEARCHING = 255
 
+    /** STATE value for the suggested cool-down after the Proxy shut itself off (see CooldownDetector). */
+    const val STATE_COOLDOWN = 254
+
     // Watch-side buffer is 96 bytes (DETAIL_LEN in main.c); leave room for UTF-8.
     const val MAX_TEXT = 80
     const val MAX_NAME = 20
@@ -96,6 +99,20 @@ object WatchProtocol {
 
     fun fromSnapshot(s: ProxySession.Snapshot): WatchMessage {
         val live = s.live
+        // Cool-down outranks everything else, and works while the Proxy is off and unreachable.
+        val cooling = s.cooldownRemainS
+        if (cooling != null) {
+            return WatchMessage(
+                state = STATE_COOLDOWN,
+                profileIdx = live?.profile ?: 0,
+                profileName = s.currentProfile?.name.orEmpty().take(MAX_NAME),
+                durationS = ProxySession.COOLDOWN_S,
+                heaterF = s.lastHeaterDeciC?.let { Units.deciCToFahrenheit(it) } ?: 0,
+                remainS = cooling,
+                battPct = s.batterySoc?.let { Units.socToPercent(it).coerceIn(0, 100) } ?: 0,
+                statusText = s.cooldownReason.take(MAX_TEXT),
+            )
+        }
         if (s.link != ProxySession.Link.Ready || live == null) {
             val text = when (val link = s.link) {
                 is ProxySession.Link.Error -> link.message
@@ -124,14 +141,16 @@ object WatchProtocol {
         data object StartHeat : Command
         data object AbortHeat : Command
         data class SelectProfile(val index: Int) : Command
+        data object SkipCooldown : Command
     }
 
-    /** CMD: 1 start, 2 abort, 3 refresh. SET_PROFILE stands alone. */
+    /** CMD: 1 start, 2 abort, 3 refresh, 4 skip cool-down. SET_PROFILE stands alone. */
     fun parseCommand(cmd: Int?, setProfile: Int?): Command? = when {
         setProfile != null -> setProfile.takeIf { it in 0..3 }?.let { Command.SelectProfile(it) }
         cmd == 1 -> Command.StartHeat
         cmd == 2 -> Command.AbortHeat
         cmd == 3 -> Command.Refresh
+        cmd == 4 -> Command.SkipCooldown
         else -> null
     }
 }

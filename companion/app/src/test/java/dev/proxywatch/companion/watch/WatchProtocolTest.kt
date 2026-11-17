@@ -1,5 +1,6 @@
 package dev.proxywatch.companion.watch
 
+import dev.proxywatch.companion.ble.CooldownDetector
 import dev.proxywatch.companion.ble.CycleTimer
 import dev.proxywatch.companion.ble.SessionEndDetector
 import dev.proxywatch.companion.ble.LiveState
@@ -117,6 +118,56 @@ class WatchProtocolTest {
         val f = SessionEndDetector()
         f.update(8, null, false)
         assertEquals(false, f.update(5, null, true))  // ...unless Puffble just stopped it
+    }
+
+    @Test fun refusedStartThenShutdownStartsCooldown() {
+        // Logged on the real Proxy when it overheated: start acked, still idle, then the link dropped.
+        val c = CooldownDetector(120_000)
+        c.onStartSent(0)
+        assertEquals(false, c.onPoll(5, 300, false))
+        assertEquals(true, c.onPoll(5, 4_500, false))   // no preheat within 4 s
+        assertEquals(120, c.remainingS(4_500))
+        assertEquals(false, c.onLinkLost(5_000))        // already cooling: no second trigger
+        assertEquals(true, c.expire(124_600))
+        assertNull(c.remainingS(124_600))
+    }
+
+    @Test fun linkLossRightAfterStartStartsCooldown() {
+        val c = CooldownDetector(120_000)
+        c.onStartSent(0)
+        assertEquals(true, c.onLinkLost(2_000))
+    }
+
+    @Test fun normalStartAndStopDoNotCoolDown() {
+        val c = CooldownDetector(120_000)
+        c.onStartSent(0)
+        assertEquals(false, c.onPoll(7, 400, false))    // preheat began
+        assertEquals(false, c.onPoll(8, 10_000, false))
+        assertEquals(false, c.onPoll(5, 20_000, true))  // stopped from Puffble
+        assertEquals(false, c.onLinkLost(60_000))       // idle link loss is just a disconnect
+        assertNull(c.remainingS(60_000))
+    }
+
+    @Test fun heatingStraightToSleepCoolsDownAndSkipClears() {
+        val c = CooldownDetector(120_000)
+        c.onPoll(8, 0, false)
+        assertEquals(true, c.onPoll(4, 1_000, false))
+        assertEquals(true, c.clear())
+        assertNull(c.remainingS(2_000))
+    }
+
+    @Test fun cooldownMessageOutranksSearching() {
+        val snap = ProxySession.Snapshot(
+            link = ProxySession.Link.Error("disconnected (status 22)"),
+            cooldownRemainS = 97, cooldownReason = ProxySession.TOO_HOT, lastHeaterDeciC = 1028,
+        )
+        val m = WatchProtocol.fromSnapshot(snap)
+        assertEquals(WatchProtocol.STATE_COOLDOWN, m.state)
+        assertEquals(97, m.remainS)
+        assertEquals(ProxySession.COOLDOWN_S, m.durationS)
+        assertEquals(217, m.heaterF)
+        assertEquals("Your Proxy shut off to cool down", m.statusText)
+        assertEquals(WatchProtocol.Command.SkipCooldown, WatchProtocol.parseCommand(4, null))
     }
 
     @Test fun cycleTimerIsUnknownWhenJoiningMidCycle() {
