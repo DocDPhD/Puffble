@@ -1,0 +1,27 @@
+# Allow-list: only the parts meant for the public repo are tracked. Everything else in this
+# folder (captures, other projects' clones, local notes, tool caches) stays private.
+/*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/LICENSE
+!/PRIVACY.md
+!/CHANGELOG.md
+!/companion/
+!/watch/
+!/docs/
+!/store/
+!/.github/
+
+# Build output and local machine files inside the allowed folders.
+companion/.gradle/
+companion/build/
+companion/app/build/
+companion/local.properties
+companion/keystore.properties
+*.jks
+*.keystore
+watch/build/
+watch/*.pbw
+watch/.lock-waf*
+watch/tools/mascot_preview.png

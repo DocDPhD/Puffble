@@ -1,0 +1,65 @@
+{
+  "name": "puffble",
+  "author": "DocDPhD",
+  "version": "0.5.0",
+  "private": true,
+  "keywords": ["pebble-app"],
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Puffble",
+    "uuid": "1b43e005-bf25-4e85-909e-80da9a074ece",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "chalk",
+      "diorite",
+      "emery",
+      "flint",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "P_NAME[4]",
+      "P_TARGET_F[4]",
+      "P_DURATION_S[4]",
+      "P_RGB[4]",
+      "STATE",
+      "PROFILE_IDX",
+      "PROFILE_NAME",
+      "TARGET_F",
+      "DURATION_S",
+      "HEATER_F",
+      "REMAIN_S",
+      "BATT_PCT",
+      "RING_RGB",
+      "SET_PROFILE",
+      "CMD",
+      "STATUS_TEXT",
+      "SETTINGS"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        }
+      ]
+    },
+    "companionApp": {
+      "android": {
+        "url": "https://github.com/DocDPhD/puffble/releases/latest",
+        "apps": [
+          {
+            "package": "io.github.docdphd.puffble"
+          }
+        ]
+      }
+    }
+  }
+}
