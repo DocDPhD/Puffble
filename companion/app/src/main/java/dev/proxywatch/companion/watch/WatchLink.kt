@@ -40,6 +40,17 @@ object PuffbleSettings {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY, bits).apply()
     }
 
+    private const val KEY_WATCH_SEEN = "watch_seen"
+
+    /** True once the watch app has talked to this phone; ticks the last setup step. */
+    fun watchSeen(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_WATCH_SEEN, false)
+
+    fun markWatchSeen(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(KEY_WATCH_SEEN, false)) prefs.edit().putBoolean(KEY_WATCH_SEEN, true).apply()
+    }
+
     fun pinsEnabled(context: Context): Boolean =
         WatchProtocol.pinsEnabled(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY, 0))
 }
@@ -157,7 +168,9 @@ object WatchBridge {
 /** Bound by the Pebble app when the watchapp opens; receives its button commands. */
 class WatchListenerService : BasePebbleListenerService() {
     override fun onAppOpened(watchappUUID: UUID, watch: WatchIdentifier) {
-        if (watchappUUID == WatchProtocol.APP_UUID) WatchBridge.start(this)
+        if (watchappUUID != WatchProtocol.APP_UUID) return
+        PuffbleSettings.markWatchSeen(this)
+        WatchBridge.start(this)
     }
 
     override fun onAppClosed(watchappUUID: UUID, watch: WatchIdentifier) {
@@ -174,6 +187,7 @@ class WatchListenerService : BasePebbleListenerService() {
         watch: WatchIdentifier,
     ): ReceiveResult {
         if (watchappUUID != WatchProtocol.APP_UUID) return ReceiveResult.Nack
+        PuffbleSettings.markWatchSeen(this)
         val settings = data[Key.SETTINGS].asInt()
         if (settings != null) PuffbleSettings.save(this, settings)
         val command = WatchProtocol.parseCommand(data[Key.CMD].asInt(), data[Key.SET_PROFILE].asInt())

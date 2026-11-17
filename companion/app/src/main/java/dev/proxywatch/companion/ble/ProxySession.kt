@@ -161,6 +161,17 @@ object ProxySession {
         }
     }
 
+    /** Drops the current link (e.g. after the user picks a different Proxy) and reconnects if anyone holds it. */
+    fun restart(context: Context) {
+        val app = context.applicationContext
+        scope.launch {
+            lingerJob?.cancel()
+            lingerJob = null
+            disconnectNow()
+            if (holders.isNotEmpty()) job = scope.launch { run(app) }
+        }
+    }
+
     private fun disconnectNow() {
         job?.cancel()
         job = null
