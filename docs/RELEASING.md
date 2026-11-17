@@ -24,7 +24,7 @@ Things that are easy to forget, roughly in the order they bite.
 ## Pebble app store listing
 
 - [ ] `companionApp.android.url` in `watch/package.json` points at
-      `https://github.com/DocDPhD/puffble/releases/latest`, so the Pebble app can send people there.
+      `https://github.com/DocDPhD/Puffble/releases/latest`, so the Pebble app can send people there.
 - [ ] Icons: `store/icon_144.png` (large), `store/icon_48.png` (small); banner
       `store/banner_720x320.png`.
 - [ ] Screenshots for each platform you support (take them from the Pebble app's

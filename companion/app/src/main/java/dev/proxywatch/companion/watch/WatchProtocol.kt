@@ -61,7 +61,8 @@ object WatchProtocol {
     /** STATE value sent while the phone has no working link to the Proxy. */
     const val STATE_SEARCHING = 255
 
-    const val MAX_TEXT = 40
+    // Watch-side buffer is 96 bytes (DETAIL_LEN in main.c); leave room for UTF-8.
+    const val MAX_TEXT = 80
     const val MAX_NAME = 20
 
     /** Ring color used when a profile's color is unknown. */

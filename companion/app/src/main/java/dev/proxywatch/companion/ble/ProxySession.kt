@@ -104,6 +104,10 @@ object ProxySession {
     }
 
     private const val TAG = "ProxySession"
+
+    // Shown on the watch while searching; written for someone looking at their wrist.
+    const val NEEDS_PERMISSION = "Open the Puffble companion app and allow Nearby Devices Permissions"
+    const val NEEDS_DEVICE = "Open the Puffble companion app and choose your Proxy"
     private const val LINGER_MS = 120_000L
     private val HEATING_STATES = setOf(OperatingState.PREHEAT, OperatingState.ACTIVE, OperatingState.FADE)
     private const val POLL_MS = 1_000L
@@ -192,10 +196,10 @@ object ProxySession {
         while (scope.isActive) {
             try {
                 if (app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    throw IOException("Open Puffble on the phone and allow Bluetooth")
+                    throw IOException(NEEDS_PERMISSION)
                 }
                 val device = ProxyDevices.resolve(app)
-                    ?: throw IOException("Open Puffble on the phone and choose your Proxy")
+                    ?: throw IOException(NEEDS_DEVICE)
                 _snapshot.value = Snapshot(Link.Connecting)
                 timer.reset()
                 val c = ProxyClient(app)

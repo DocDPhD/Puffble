@@ -16,6 +16,7 @@
 #define PROFILE_COUNT 4
 #define NAME_LEN 24
 #define TEXT_LEN 48
+#define DETAIL_LEN 96  // status text from the phone can run to three lines
 
 #define STATE_IDLE 5
 #define STATE_PREHEAT 7
@@ -71,7 +72,7 @@ static int16_t s_remain_s = -1;
 static uint64_t s_remain_at_ms;
 static uint32_t s_ring_rgb = 0x303030;
 static char s_name[NAME_LEN];
-static char s_status[TEXT_LEN];
+static char s_status[DETAIL_LEN];
 
 static bool s_have_table;
 static char s_p_name[PROFILE_COUNT][NAME_LEN];
@@ -511,7 +512,7 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
   }
 
   if ((t = dict_find(iter, MESSAGE_KEY_STATE))) s_state = prv_int(t);
-  if ((t = dict_find(iter, MESSAGE_KEY_STATUS_TEXT))) prv_copy(s_status, TEXT_LEN, t);
+  if ((t = dict_find(iter, MESSAGE_KEY_STATUS_TEXT))) prv_copy(s_status, DETAIL_LEN, t);
   if ((t = dict_find(iter, MESSAGE_KEY_PROFILE_IDX))) s_profile = prv_int(t);
   if ((t = dict_find(iter, MESSAGE_KEY_PROFILE_NAME))) prv_copy(s_name, NAME_LEN, t);
   if ((t = dict_find(iter, MESSAGE_KEY_TARGET_F))) s_target_f = prv_int(t);
@@ -598,7 +599,7 @@ typedef struct {
   Icon icon;
   char hero[TEXT_LEN];
   char sub[TEXT_LEN];
-  char detail[TEXT_LEN];
+  char detail[DETAIL_LEN];
   char hint[TEXT_LEN];
   bool battery;
   bool profile_page;  // hero is a profile name: all four names share one size
@@ -915,7 +916,7 @@ static void prv_draw_page(GContext *ctx, GRect full, const View *vp, bool confir
   const int gap = b.size.h >= 220 ? 8 : 5;
   const int sub_h = v.sub[0] ? 28 : 0;
   const GSize detail_size = v.detail[0] ? graphics_text_layout_get_content_size(
-                                              v.detail, small_font, GRect(0, 0, width, 44),
+                                              v.detail, small_font, GRect(0, 0, width, 66),
                                               GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter)
                                         : GSize(0, 0);
   const int detail_h = v.detail[0] ? detail_size.h + 4 : 0;

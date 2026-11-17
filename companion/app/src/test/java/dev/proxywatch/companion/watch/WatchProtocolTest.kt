@@ -46,6 +46,11 @@ class WatchProtocolTest {
         assertEquals(emptyList<Any>(), WatchProtocol.profileTable(ProxySession.Snapshot()))
     }
 
+    @Test fun permissionMessageReachesTheWatchWhole() {
+        val m = WatchProtocol.fromSnapshot(ProxySession.Snapshot(ProxySession.Link.Error(ProxySession.NEEDS_PERMISSION)))
+        assertEquals("Open the Puffble companion app and allow Nearby Devices Permissions", m.statusText)
+    }
+
     @Test fun parsesCommands() {
         assertEquals(Command.StartHeat, WatchProtocol.parseCommand(1, null))
         assertEquals(Command.AbortHeat, WatchProtocol.parseCommand(2, null))
