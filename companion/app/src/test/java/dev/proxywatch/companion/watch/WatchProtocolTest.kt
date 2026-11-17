@@ -1,6 +1,7 @@
 package dev.proxywatch.companion.watch
 
 import dev.proxywatch.companion.ble.CycleTimer
+import dev.proxywatch.companion.ble.SessionEndDetector
 import dev.proxywatch.companion.ble.LiveState
 import dev.proxywatch.companion.ble.ProfileInfo
 import dev.proxywatch.companion.ble.ProxySession
@@ -85,6 +86,37 @@ class WatchProtocolTest {
         assertEquals("Daily", pin.subtitle)
         assertEquals("510°F for 2:00. Cooling down. Enjoy!", pin.body)
         assertEquals("Puffco Proxy", WatchProtocol.sessionPin(" ", 500, 75).subtitle)
+    }
+
+    @Test fun naturalFinishStraightToIdleCountsAsDone() {
+        // Logged on the real Proxy: remain 3, 2, then state 5.
+        val d = SessionEndDetector()
+        assertEquals(false, d.update(7, null, false))
+        assertEquals(false, d.update(8, 3, false))
+        assertEquals(false, d.update(8, 2, false))
+        assertEquals(true, d.update(5, null, false))
+        assertEquals(false, d.update(5, null, false))  // only once
+    }
+
+    @Test fun stoppingMidSessionIsNotDone() {
+        val d = SessionEndDetector()
+        d.update(8, 60, false)
+        assertEquals(false, d.update(5, null, true))
+        val e = SessionEndDetector()
+        e.update(8, 60, false)
+        assertEquals(false, e.update(5, null, false))  // stopped from the Puffco app: countdown far from zero
+    }
+
+    @Test fun fadeStateAndUnknownCountdown() {
+        val d = SessionEndDetector()
+        d.update(8, 50, false)
+        assertEquals(true, d.update(9, null, false))  // firmware that does report fade
+        val e = SessionEndDetector()
+        e.update(8, null, false)                      // joined mid-session
+        assertEquals(true, e.update(5, null, false))
+        val f = SessionEndDetector()
+        f.update(8, null, false)
+        assertEquals(false, f.update(5, null, true))  // ...unless Puffble just stopped it
     }
 
     @Test fun cycleTimerIsUnknownWhenJoiningMidCycle() {

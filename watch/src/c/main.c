@@ -862,6 +862,46 @@ static void prv_line(GContext *ctx, const char *text, GFont font, GRect full, in
                      GTextAlignmentCenter, NULL);
 }
 
+/**
+ * Pixel-font text bent along the bottom of a circle, reading left to right, each glyph's top
+ * toward the center (like printing around a watch bezel).
+ * [radius] is the baseline (glyph bottoms).
+ */
+static int32_t prv_rdiv(int32_t a, int32_t b) { return (a >= 0 ? a + b / 2 : a - b / 2) / b; }
+
+static void prv_px_draw_arc(GContext *ctx, const char *text, GPoint center, int radius, int scale) {
+  const int len = strlen(text);
+  const int total = prv_px_width(text, len, scale);
+  const int32_t two_t = 2 * TRIG_MAX_RATIO;
+  int pos = 0;  // distance along the baseline to the current glyph's left edge
+  for (int i = 0; i < len; i++) {
+    const Glyph *g = prv_glyph(text[i]);
+    if (!g) continue;
+    const int gw = g->w * scale;
+    // Each glyph is rotated as one rigid block to the angle of its center along the arc
+    // (bending every pixel separately fans the letters apart). Distances are doubled to
+    // keep half-pixel centers in integer math.
+    const int32_t mid2 = 2 * pos + gw - total;
+    const int32_t a = mid2 * TRIG_MAX_ANGLE / (4 * 31416 * radius / 10000);
+    const int32_t sn = sin_lookup(a), cs = cos_lookup(a);
+    for (int row = 0; row < 7; row++) {
+      for (int col = 0; col < g->w; col++) {
+        if (!(g->rows[row] & (1 << (g->w - 1 - col)))) continue;
+        for (int sy = 0; sy < scale; sy++) {
+          for (int sx = 0; sx < scale; sx++) {
+            const int32_t lx2 = 2 * (col * scale + sx) + 1 - gw;    // along the tangent
+            const int32_t ly2 = 2 * ((6 - row) * scale + sy) + 1;   // up, toward the center
+            const int x = center.x + prv_rdiv(2 * sn * radius + cs * lx2 - sn * ly2, two_t);
+            const int y = center.y + prv_rdiv(2 * cs * radius - sn * lx2 - cs * ly2, two_t);
+            graphics_fill_rect(ctx, GRect(x, y, 1, 1), 0, GCornerNone);
+          }
+        }
+      }
+    }
+    pos += (g->w + 1) * scale;
+  }
+}
+
 /** Draws one full page into [full] shifted down by [oy] (the swipe transition moves pages). */
 static void prv_draw_page(GContext *ctx, GRect full, const View *vp, bool confirm, int oy, bool live) {
   const View v = *vp;
@@ -896,9 +936,13 @@ static void prv_draw_page(GContext *ctx, GRect full, const View *vp, bool confir
 
   // Vertical space: inside the border, and above the hint pill on rectangular screens.
   const bool hint_pill = !round && v.hint[0];
+  const bool hint_arc = round && v.hint[0] && prv_px_supported(v.hint);
   const int pill_h = 18;
+  const int arc_scale = 2;
+  const int arc_band = 7 * arc_scale + 10;  // curved hint height plus breathing room
   const int area_top = top + (round ? 0 : edge + thick + (v.battery ? 14 : 2));
-  const int area_bot = top + b.size.h - (round ? 0 : edge + thick + (hint_pill ? pill_h + 4 : 2));
+  const int area_bot = top + b.size.h - (round ? (hint_arc ? edge + thick + arc_band : 0)
+                                               : edge + thick + (hint_pill ? pill_h + 4 : 2));
 
   // Icon.
   const int icon_scale = b.size.w >= 200 ? 3 : 2;
@@ -920,7 +964,7 @@ static void prv_draw_page(GContext *ctx, GRect full, const View *vp, bool confir
                                               GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter)
                                         : GSize(0, 0);
   const int detail_h = v.detail[0] ? detail_size.h + 4 : 0;
-  const int hint_h = (v.hint[0] && !hint_pill) ? 22 : 0;
+  const int hint_h = (v.hint[0] && !hint_pill && !hint_arc) ? 22 : 0;
   const int fixed_h = (icon_h ? icon_h + gap : 0) + gap + sub_h + detail_h + hint_h;
   int hero_max_h = (area_bot - area_top) - fixed_h - (round ? 40 : 4);
   if (hero_max_h > 84) hero_max_h = 84;
@@ -978,6 +1022,13 @@ static void prv_draw_page(GContext *ctx, GRect full, const View *vp, bool confir
                          GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
       prv_battery_draw(ctx, bx, by, bs, s_batt);
     }
+  }
+
+  if (hint_arc) {
+    const GPoint c = GPoint(b.origin.x + b.size.w / 2, top + b.size.h / 2);
+    const int r = (b.size.w < b.size.h ? b.size.w : b.size.h) / 2 - edge - thick - 6;
+    graphics_context_set_fill_color(ctx, v.fg);
+    prv_px_draw_arc(ctx, v.hint, c, r, arc_scale);
   }
 
   // Inverted pill just above the bottom border: background-colored text on a solid block.

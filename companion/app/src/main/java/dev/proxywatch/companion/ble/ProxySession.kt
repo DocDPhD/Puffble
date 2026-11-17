@@ -81,6 +81,36 @@ class CycleTimer {
 }
 
 /**
+ * Decides when a heat session finished on its own (as opposed to being stopped).
+ *
+ * The Proxy tested goes straight from active (8) to idle (5) at the end of a session; it never
+ * reports fade (9). So a session counts as finished when it leaves active either into fade, or
+ * with the countdown within [GRACE_S] of zero, or, when the countdown is unknown (the phone
+ * joined mid-session), when nobody stopped it from Puffble. Pure logic, unit tested.
+ */
+class SessionEndDetector {
+    private var prev: Int? = null
+    private var lastRemain: Int? = null
+
+    fun update(state: Int, remainS: Int?, abortedRecently: Boolean): Boolean {
+        val wasActive = prev == OperatingState.ACTIVE
+        val known = lastRemain
+        prev = state
+        lastRemain = if (state == OperatingState.ACTIVE) remainS else null
+        if (!wasActive || state == OperatingState.ACTIVE) return false
+        return when {
+            state == OperatingState.FADE -> true
+            known != null -> known <= GRACE_S
+            else -> !abortedRecently
+        }
+    }
+
+    private companion object {
+        const val GRACE_S = 8  // poll interval plus clock drift between phone and Proxy
+    }
+}
+
+/**
  * The single shared connection to the Proxy. The activity and the watch link both
  * "hold" it; it connects when the first holder arrives and disconnects when the last leaves.
  */
@@ -110,7 +140,12 @@ object ProxySession {
     const val NEEDS_DEVICE = "Open the Puffble companion app and choose your Proxy"
     private const val LINGER_MS = 120_000L
     private val HEATING_STATES = setOf(OperatingState.PREHEAT, OperatingState.ACTIVE, OperatingState.FADE)
+    private const val DONE_SHOW_MS = 6_000L
+    private const val ABORT_WINDOW_MS = 5_000L
     private const val POLL_MS = 1_000L
+
+    @Volatile private var deviceState: Int? = null
+    @Volatile private var lastAbortAt = Long.MIN_VALUE / 2
     private const val BATTERY_EVERY_MS = 30_000L
     private const val PROFILES_EVERY_MS = 60_000L
 
@@ -189,13 +224,15 @@ object ProxySession {
     /** Starts the heater. Callers must already have the user's explicit confirmation. */
     suspend fun startHeatCycle() {
         val c = ready()
-        if (_snapshot.value.live?.operatingState != OperatingState.IDLE) throw IOException("Proxy is not idle")
+        // The real device state: the snapshot may be showing a brief synthetic "done".
+        if (deviceState != OperatingState.IDLE) throw IOException("Proxy is not idle")
         c.startHeatCycle()
         kick.trySend(Unit)
     }
 
     suspend fun abortHeatCycle() {
         ready().abortHeatCycle()
+        lastAbortAt = now()
         kick.trySend(Unit)
     }
 
@@ -223,20 +260,29 @@ object ProxySession {
                 var battery = c.readBatterySoc()
                 var batteryAt = now()
                 var profilesAt = now()
-                var prevState: Int? = null
+                val ends = SessionEndDetector()
+                var doneUntil = 0L
                 while (true) {
-                    val live = c.readLive()
-                    if (prevState == OperatingState.ACTIVE && live.operatingState == OperatingState.FADE) {
+                    val device = c.readLive()
+                    deviceState = device.operatingState
+                    val durationS = dev.proxywatch.companion.lorax.Units.ticksToSeconds(device.durationTicks)
+                    val remain = timer.update(device.operatingState, durationS, now())
+                    val aborted = now() - lastAbortAt < ABORT_WINDOW_MS
+                    if (ends.update(device.operatingState, remain, aborted)) {
                         _sessions.tryEmit(
                             SessionDone(
-                                profileName = profiles.getOrNull(live.profile)?.name.orEmpty(),
-                                targetDeciC = live.targetDeciC,
-                                durationTicks = live.durationTicks,
+                                profileName = profiles.getOrNull(device.profile)?.name.orEmpty(),
+                                targetDeciC = device.targetDeciC,
+                                durationTicks = device.durationTicks,
                                 endedAtMs = System.currentTimeMillis(),
                             )
                         )
+                        doneUntil = now() + DONE_SHOW_MS
                     }
-                    prevState = live.operatingState
+                    // This Proxy goes straight from active to idle, so after a natural finish the
+                    // watch is shown "done" (state 9) for a few seconds: "All done" plus the end alert.
+                    val showDone = device.operatingState == OperatingState.IDLE && now() < doneUntil
+                    val live = if (showDone) device.copy(operatingState = OperatingState.FADE) else device
                     if (now() - batteryAt > BATTERY_EVERY_MS) {
                         battery = c.readBatterySoc()
                         batteryAt = now()
@@ -246,13 +292,12 @@ object ProxySession {
                         profiles = (0..3).map { c.readProfile(it) }
                         profilesAt = now()
                     }
-                    val durationS = dev.proxywatch.companion.lorax.Units.ticksToSeconds(live.durationTicks)
                     _snapshot.value = Snapshot(
                         link = Link.Ready,
                         live = live,
                         profiles = profiles,
                         batterySoc = battery,
-                        remainS = timer.update(live.operatingState, durationS, now()),
+                        remainS = remain,
                     )
                     // Poll once a second, or straight away after a command.
                     withTimeoutOrNull(POLL_MS) { kick.receive() }
