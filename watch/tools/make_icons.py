@@ -147,7 +147,7 @@ def store_assets():
     out = os.path.join(ROOT, "store")
     os.makedirs(out, exist_ok=True)
     bg = hex_rgba(ICON_BG)
-    for size, scale in ((144, 11), (48, 4), (512, 40)):
+    for size, scale in ((144, 11), (80, 6), (512, 40)):  # store large, small, and a hi-res copy
         canvas = [[bg] * size for _ in range(size)]
         off = (size - 12 * scale) // 2
         stamp_grid(canvas, MASCOT, off, off, scale)
