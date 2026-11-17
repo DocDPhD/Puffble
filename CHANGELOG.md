@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Puffble now supports the Pebble Round 2 and Pebble Time 2 only, the two watches it's tested on.
+
 ## 0.5.0
 
 First public release.

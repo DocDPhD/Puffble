@@ -26,8 +26,8 @@ android {
         // 33 keeps the BLE code on the non-deprecated GATT API only.
         minSdk = 33
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.5.0"
+        versionCode = 7
+        versionName = "0.5.1"
     }
 
     signingConfigs {

@@ -622,6 +622,9 @@ typedef struct {
 
 static int prv_remaining_now(void) {
   if (s_remain_s < 0) return -1;
+#ifdef PUFFBLE_DEMO
+  return s_remain_s;  // frozen, so screenshots on every watch show the same numbers
+#endif
   const int left = s_remain_s - (int)((prv_now_ms() - s_remain_at_ms) / 1000);
   return left < 0 ? 0 : left;
 }
@@ -1308,9 +1311,9 @@ static void prv_demo(void) {
   switch (s_state) {
     case STATE_IDLE: p = 0; s_heater_f = 82; break;
     case STATE_PREHEAT: p = 1; s_heater_f = 412; break;
-    case STATE_ACTIVE: p = 3; s_heater_f = 568; s_remain_s = 83; break;
+    case STATE_ACTIVE: p = 3; s_heater_f = 568; s_remain_s = 80; break;
     case STATE_FADE: p = 2; s_heater_f = 455; break;
-    case STATE_COOLDOWN: p = 0; s_heater_f = 217; s_remain_s = 97; break;
+    case STATE_COOLDOWN: p = 0; s_heater_f = 217; s_remain_s = 93; break;
   }
   s_profile = p;
   snprintf(s_name, NAME_LEN, "%s", names[p]);

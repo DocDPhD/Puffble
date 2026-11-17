@@ -17,7 +17,7 @@ The watch can't talk to the Proxy directly, so the companion must be installed o
 ## Requirements
 
 - Android 13 or newer, with the [Pebble app by Core Devices](https://repebble.com)
-- A Pebble watch (tested on Pebble Round 2 and Pebble Time 2)
+- A Pebble Round 2 or Pebble Time 2 (the two watches Puffble supports)
 - A Puffco Proxy (tested on firmware API level 7)
 
 ## Setup

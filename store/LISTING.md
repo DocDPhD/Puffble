@@ -1,4 +1,4 @@
-# Pebble app store listing — Puffble 0.5.0
+# Pebble app store listing — Puffble 0.5.1
 
 Everything to paste into the developer dashboard, field by field.
 Dashboard: <https://developer.repebble.com/dashboard> (sign in with GitHub as DocDPhD).
@@ -11,8 +11,8 @@ Apps go live as soon as they're submitted; there is no review queue.
 | App name | `Puffble` |
 | Type | Watchapp |
 | Category | `Remotes` |
-| Version | `0.5.0` |
-| Build | `Puffble-watch-0.5.0.pbw` from the [v0.5.0 release](https://github.com/DocDPhD/Puffble/releases/tag/v0.5.0) |
+| Version | `0.5.1` |
+| Build | `Puffble-watch-0.5.1.pbw` from the [v0.5.1 release](https://github.com/DocDPhD/Puffble/releases/tag/v0.5.1) |
 | Visibility | Listed (choose Unlisted if you'd like to share the link privately first) |
 | Website URL | `https://github.com/DocDPhD/Puffble` |
 | Source code URL | `https://github.com/DocDPhD/Puffble` |
@@ -33,7 +33,7 @@ See the live temperature, flip between your four heat profiles, start a session 
 
 REQUIRES the free Puffble Android companion app (Android 13+), which connects to the Proxy over Bluetooth. Get it from github.com/DocDPhD/Puffble/releases. No iPhone support yet.
 
-Tested on Pebble Round 2 and Pebble Time 2 with a Puffco Proxy. Close the official Puffco app while using Puffble.
+Works on Pebble Round 2 and Pebble Time 2, with a Puffco Proxy. Close the official Puffco app while using Puffble.
 
 Puffble controls a device that gets very hot: stay with it while it heats. Puffble is an independent project, not made or endorsed by Puffco. Puffco and Proxy are trademarks of their owner. Puffble collects no data: github.com/DocDPhD/Puffble/blob/main/PRIVACY.md
 ```
@@ -65,7 +65,7 @@ Upload these under the matching platform (files in `store/screenshots/`):
 | emery | Pebble Time 2 (rectangular, 200×228) | `emery_1_profile.png`, `emery_2_session.png`, `emery_3_cooldown.png` |
 
 They were captured from the emulator with demo data (`PUFFBLE_DEMO` builds; the regular app never
-contains it). Other platforms can go without screenshots.
+contains it). Puffble only targets these two watches, so no other platforms need screenshots.
 
 ## Release notes (per release, optional)
 
@@ -83,7 +83,7 @@ not-affiliated notes, and links the privacy policy.
 ## Before you press Submit
 
 - [ ] Signed in with GitHub as DocDPhD
-- [ ] `.pbw` uploaded is the one from the v0.5.0 release (UUID `1b43e005-bf25-4e85-909e-80da9a074ece`)
+- [ ] `.pbw` uploaded is the one from the v0.5.1 release (UUID `1b43e005-bf25-4e85-909e-80da9a074ece`)
 - [ ] Icons, banner and at least one screenshot uploaded
 - [ ] Category `Remotes`, description pasted, source URL set
 - [ ] Companion section filled (or left empty, see above)
