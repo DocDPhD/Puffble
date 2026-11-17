@@ -55,25 +55,17 @@ Puffble controls a device that gets very hot: stay with it while it heats. Puffb
 | Banner | `store/banner_720x320.png` | 720×320 |
 | Screenshots | see below | per platform |
 
-### Screenshots (up to 5 per platform, unframed, exact screen size)
+### Screenshots
 
-| Platform | Watches | Size |
+Upload these under the matching platform (files in `store/screenshots/`):
+
+| Platform | Watch | Files (in this order) |
 |---|---|---|
-| gabbro | Pebble Round 2 | 260×260 |
-| emery | Pebble Time 2 | 200×228 |
-| chalk | Pebble Time Round | 180×180 |
-| basalt, diorite, flint, aplite | Pebble Time / 2 / 2 Duo / original | 144×168 |
+| gabbro | Pebble Round 2 (round, 260×260) | `gabbro_1_profile.png`, `gabbro_2_session.png`, `gabbro_3_cooldown.png` |
+| emery | Pebble Time 2 (rectangular, 200×228) | `emery_1_profile.png`, `emery_2_session.png`, `emery_3_cooldown.png` |
 
-Suggested five, in this order: profile page, heating up, session countdown, all done, cool-down.
-
-Two ways to get them:
-1. **Emulator (all platforms, automatic):** install the emulator's display library once in WSL,
-   `wsl -d Ubuntu -- sudo apt install -y libsdl2-2.0-0`, then the demo builds can be screenshotted
-   on every platform.
-2. **Your own watches:** Pebble app → Devices → ⋮ → Screenshot, on each screen. That covers gabbro
-   (Round 2) and emery (Time 2) only.
-
-Listings may have screenshots for some platforms and not others; at least one is needed.
+They were captured from the emulator with demo data (`PUFFBLE_DEMO` builds; the regular app never
+contains it). Other platforms can go without screenshots.
 
 ## Release notes (per release, optional)
 

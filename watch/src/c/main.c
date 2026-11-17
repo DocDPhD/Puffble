@@ -1285,20 +1285,39 @@ static void prv_confirm_unload(Window *w) {
 }
 
 #ifdef PUFFBLE_DEMO
-// Emulator layout checks only: build with -DPUFFBLE_DEMO=<state>.
+// Emulator screenshots only: build with -DPUFFBLE_DEMO=<state> to show that screen with
+// sample data and no phone. Never in release builds.
 static void prv_demo(void) {
+  static const char *const names[PROFILE_COUNT] = {"Ultra Flavor", "Balanced Flavor", "Daily", "Most Vapor"};
+  static const uint16_t temps[PROFILE_COUNT] = {475, 500, 510, 570};
+  static const uint32_t rgbs[PROFILE_COUNT] = {0xFF00D0, 0x53FF12, 0xFF005D, 0x6600FF};
+  for (int i = 0; i < PROFILE_COUNT; i++) {
+    snprintf(s_p_name[i], NAME_LEN, "%s", names[i]);
+    s_p_target_f[i] = temps[i];
+    s_p_duration_s[i] = 120;
+    s_p_rgb[i] = rgbs[i];
+  }
+  s_have_table = true;
   s_have_msg = true;
-  s_state = PUFFBLE_DEMO;
-  s_profile = 1;
-  snprintf(s_name, NAME_LEN, "Balanced Flavor");
-  s_target_f = 500;
-  s_duration_s = 120;
-  s_heater_f = 412;
-  s_remain_s = 83;
-  s_remain_at_ms = prv_now_ms();
-  s_batt = 87;
-  s_ring_rgb = 0x53FF12;
   s_show_tip = false;
+  s_state = PUFFBLE_DEMO;
+  s_batt = 87;
+  s_duration_s = 120;
+  // Each screen on a different profile, so the screenshots show off the colors.
+  int p = 0;
+  switch (s_state) {
+    case STATE_IDLE: p = 0; s_heater_f = 82; break;
+    case STATE_PREHEAT: p = 1; s_heater_f = 412; break;
+    case STATE_ACTIVE: p = 3; s_heater_f = 568; s_remain_s = 83; break;
+    case STATE_FADE: p = 2; s_heater_f = 455; break;
+    case STATE_COOLDOWN: p = 0; s_heater_f = 217; s_remain_s = 97; break;
+  }
+  s_profile = p;
+  snprintf(s_name, NAME_LEN, "%s", names[p]);
+  s_target_f = temps[p];
+  s_ring_rgb = rgbs[p];
+  s_remain_at_ms = prv_now_ms();
+  s_temp_shown = s_heater_f;
 }
 #endif
 
