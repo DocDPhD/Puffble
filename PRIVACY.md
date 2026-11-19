@@ -2,8 +2,11 @@
 
 Puffble collects nothing.
 
-- **No network.** Neither the watch app nor the Android companion uses the internet. The
-  companion does not request the internet permission.
+- **One optional network request.** The watch app never uses the internet. The Android
+  companion connects only when you tap **Check** under Updates: it asks GitHub
+  (api.github.com) for the latest Puffble release. Like any web request, GitHub sees your IP
+  address; Puffble sends nothing else. If you tap Download, your browser fetches the APK from
+  GitHub.
 - **No accounts, analytics, ads or crash reporting.**
 - **Bluetooth only.** The companion connects to your Puffco Proxy over Bluetooth to read its
   state (temperature, profiles, battery) and send the commands you choose. That data stays on

@@ -57,4 +57,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("io.rebble.pebblekit2:client:1.3.2")
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for unit tests (Android's copy is a stub off-device).
+    testImplementation("org.json:json:20240303")
 }

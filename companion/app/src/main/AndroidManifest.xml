@@ -3,6 +3,8 @@
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Only for "Check for updates", which asks GitHub for the latest release when tapped. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Only used if the user turns on the optional "keep running in the background" step. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 

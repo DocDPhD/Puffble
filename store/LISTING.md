@@ -1,4 +1,4 @@
-# Pebble app store listing — Puffble 0.5.1
+# Pebble app store listing — Puffble 0.6.0
 
 Everything to paste into the developer dashboard, field by field.
 Dashboard: <https://developer.repebble.com/dashboard> (sign in with GitHub as DocDPhD).
@@ -11,8 +11,8 @@ Apps go live as soon as they're submitted; there is no review queue.
 | App name | `Puffble` |
 | Type | Watchapp |
 | Category | `Remotes` |
-| Version | `0.5.1` |
-| Build | `Puffble-watch-0.5.1.pbw` from the [v0.5.1 release](https://github.com/DocDPhD/Puffble/releases/tag/v0.5.1) |
+| Version | `0.6.0` |
+| Build | `Puffble-watch-0.6.0.pbw` from the [v0.6.0 release](https://github.com/DocDPhD/Puffble/releases/tag/v0.6.0) |
 | Visibility | Listed (choose Unlisted if you'd like to share the link privately first) |
 | Website URL | `https://github.com/DocDPhD/Puffble` |
 | Source code URL | `https://github.com/DocDPhD/Puffble` |
@@ -26,7 +26,9 @@ See the live temperature, flip between your four heat profiles, start a session 
 
 - Live heater temperature, target, countdown and Proxy battery
 - Change profiles instantly with Up and Down
-- Start with hold-to-confirm; stop any time by holding Select
+- Start with hold-to-confirm (or a double press, if you prefer); stop any time by holding Select
+- Custom one-time sessions: pick your own temperature and time without touching your profiles
+- Boost mid-session with a double press of Select
 - "All done" screen, end-of-session buzz and a timeline pin
 - Cool-down screen with a 2-minute gauge if the Proxy shuts off to cool
 - Settings on the watch: °F/°C, session alerts, button buzz, light always on, animations, timeline pins, backlight color (Pebble Time 2)
@@ -70,7 +72,7 @@ contains it). Puffble only targets these two watches, so no other platforms need
 ## Release notes (per release, optional)
 
 ```
-First public release. Live Proxy state, instant profile changes, hold-to-confirm start, session countdown, timeline pins and a cool-down screen. Requires the Puffble Android companion.
+New: custom one-time sessions, boost with a double press of Select, a choice of hold or double press to start, and the Proxy's battery percentage on the Round 2. Requires the Puffble Android companion.
 ```
 
 ## Content rules
@@ -83,7 +85,7 @@ not-affiliated notes, and links the privacy policy.
 ## Before you press Submit
 
 - [ ] Signed in with GitHub as DocDPhD
-- [ ] `.pbw` uploaded is the one from the v0.5.1 release (UUID `1b43e005-bf25-4e85-909e-80da9a074ece`)
+- [ ] `.pbw` uploaded is the one from the v0.6.0 release (UUID `1b43e005-bf25-4e85-909e-80da9a074ece`)
 - [ ] Icons, banner and at least one screenshot uploaded
 - [ ] Category `Remotes`, description pasted, source URL set
 - [ ] Companion section filled (or left empty, see above)

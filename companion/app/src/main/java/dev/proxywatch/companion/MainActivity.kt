@@ -22,7 +22,10 @@ import dev.proxywatch.companion.ble.ProxyDevices
 import dev.proxywatch.companion.ble.ProxySession
 import dev.proxywatch.companion.lorax.Units
 import dev.proxywatch.companion.watch.PuffbleSettings
+import dev.proxywatch.companion.update.Updates
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
@@ -82,6 +85,8 @@ class MainActivity : Activity() {
         permissionStep.title.setText(R.string.step_permission_title)
         proxyStep.title.setText(R.string.step_proxy_title)
         watchStep.title.setText(R.string.step_watch_title)
+
+        setUpUpdates()
 
         findViewById<View>(R.id.link_help).setOnClickListener { open(REPO_URL) }
         findViewById<View>(R.id.link_privacy).setOnClickListener { open("$REPO_URL/blob/main/PRIVACY.md") }
@@ -255,6 +260,37 @@ class MainActivity : Activity() {
         if (!holding) return
         holding = false
         ProxySession.release(HOLDER)
+    }
+
+    // ---- updates ----------------------------------------------------------------
+
+    private fun installedVersion(): String = packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
+
+    private fun setUpUpdates() {
+        val body = findViewById<TextView>(R.id.update_body)
+        val action = findViewById<Button>(R.id.update_action)
+        body.text = getString(R.string.update_current, installedVersion())
+        action.setText(R.string.action_check)
+        action.setOnClickListener { checkForUpdates(body, action) }
+    }
+
+    /** Asks GitHub for the latest release; only runs when the user taps Check. */
+    private fun checkForUpdates(body: TextView, action: Button) {
+        action.isEnabled = false
+        body.setText(R.string.update_checking)
+        scope.launch {
+            val latest = runCatching { withContext(Dispatchers.IO) { Updates.fetchLatest() } }.getOrNull()
+            action.isEnabled = true
+            when {
+                latest == null -> body.setText(R.string.update_failed)
+                Updates.isNewer(latest.version, installedVersion()) -> {
+                    body.text = getString(R.string.update_available, latest.version)
+                    action.setText(R.string.action_download)
+                    action.setOnClickListener { open(latest.apkUrl ?: latest.pageUrl) }
+                }
+                else -> body.text = getString(R.string.update_latest, installedVersion())
+            }
+        }
     }
 
     private fun prefs() = getSharedPreferences("setup", MODE_PRIVATE)

@@ -8,6 +8,7 @@
 - New setting: start heating by holding Select (default) or pressing it twice.
 - Proxy battery percentage on the profile page on the Round 2 too.
 - Phone app: optional, off-by-default guide to turn off battery optimization.
+- Phone app: "Check for updates" asks GitHub for the latest release and offers the download.
 
 ## 0.5.1
 

@@ -36,6 +36,14 @@
     <string name="action_battery_settings">Settings</string>
     <string name="tip_close_puffco">Tip: close the official Puffco app while you use Puffble. Only one app can control the Proxy at a time.</string>
 
+    <string name="updates_title">Updates</string>
+    <string name="update_current">You have version %1$s.</string>
+    <string name="update_checking">Checking GitHub…</string>
+    <string name="update_latest">You have the latest version (%1$s).</string>
+    <string name="update_available">Version %1$s is available. Download it, then open the file to install. Update the watch app from the Pebble app store.</string>
+    <string name="update_failed">Couldn\'t check right now. Try again later.</string>
+    <string name="action_check">Check</string>
+    <string name="action_download">Download</string>
     <string name="status_setup">Finish setup below</string>
     <string name="status_connecting">Connecting to your Proxy…</string>
     <string name="status_waiting">Ready. Open Puffble on your watch.</string>
