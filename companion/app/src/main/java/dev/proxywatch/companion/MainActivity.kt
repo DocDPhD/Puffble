@@ -11,10 +11,12 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.view.WindowInsets
 import android.widget.Button
+import android.widget.Switch
 import android.widget.TextView
 import dev.proxywatch.companion.ble.ProxyDevices
 import dev.proxywatch.companion.ble.ProxySession
@@ -42,6 +44,8 @@ class MainActivity : Activity() {
     private lateinit var permissionStep: Step
     private lateinit var proxyStep: Step
     private lateinit var watchStep: Step
+    private lateinit var batteryStep: Step
+    private lateinit var batterySwitch: Switch
     private lateinit var status: TextView
     private lateinit var statusDot: View
 
@@ -64,6 +68,14 @@ class MainActivity : Activity() {
         permissionStep = Step(findViewById(R.id.step_permission))
         proxyStep = Step(findViewById(R.id.step_proxy))
         watchStep = Step(findViewById(R.id.step_watch))
+        batteryStep = Step(findViewById(R.id.step_battery))
+        batteryStep.title.setText(R.string.step_battery_title)
+        batterySwitch = findViewById(R.id.battery_switch)
+        batterySwitch.isChecked = prefs().getBoolean(PREF_BATTERY_GUIDE, false)
+        batterySwitch.setOnCheckedChangeListener { _, on ->
+            prefs().edit().putBoolean(PREF_BATTERY_GUIDE, on).apply()
+            refresh()
+        }
         status = findViewById(R.id.status)
         statusDot = findViewById(R.id.status_dot)
 
@@ -165,6 +177,19 @@ class MainActivity : Activity() {
             if (launch != null) startActivity(launch) else open(PEBBLE_APP_URL)
         }
 
+        // Optional battery step, only while the switch is on.
+        val batteryView = findViewById<View>(R.id.step_battery)
+        batteryView.visibility = if (batterySwitch.isChecked) View.VISIBLE else View.GONE
+        if (batterySwitch.isChecked) {
+            val exempt = ignoringBatteryOptimizations()
+            setStep(batteryStep, 4, done = exempt, enabled = true,
+                body = getString(if (exempt) R.string.step_battery_done else R.string.step_battery_todo),
+                action = getString(if (exempt) R.string.action_battery_settings else R.string.action_allow),
+            ) {
+                if (ignoringBatteryOptimizations()) openBatterySettings() else requestBatteryExemption()
+            }
+        }
+
         // Hold the Proxy link while this screen is open, so the status shows it working.
         if (permission && proxy != null) holdLink() else releaseLink()
         renderStatus(ProxySession.snapshot.value)
@@ -232,6 +257,23 @@ class MainActivity : Activity() {
         ProxySession.release(HOLDER)
     }
 
+    private fun prefs() = getSharedPreferences("setup", MODE_PRIVATE)
+
+    private fun ignoringBatteryOptimizations(): Boolean =
+        getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
+
+    /** Android's own "let this app run in the background?" prompt. */
+    @SuppressLint("BatteryLife")
+    private fun requestBatteryExemption() {
+        val ask = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+        runCatching { startActivity(ask) }.onFailure { openBatterySettings() }
+    }
+
+    private fun openBatterySettings() {
+        val list = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        runCatching { startActivity(list) }.onFailure { openAppSettings() }
+    }
+
     private fun openBluetoothSettings() = startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
 
     private fun openAppSettings() =
@@ -241,6 +283,7 @@ class MainActivity : Activity() {
 
     private companion object {
         const val HOLDER = "activity"
+        const val PREF_BATTERY_GUIDE = "battery_guide"
         const val REPO_URL = "https://github.com/DocDPhD/Puffble"
         const val PEBBLE_APP_URL = "https://repebble.com"
         val PEBBLE_PACKAGES = listOf("coredevices.coreapp")

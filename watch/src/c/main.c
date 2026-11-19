@@ -5,9 +5,12 @@
 // and Gabbro (Pebble Round 2) behave the same.
 //
 //   Idle:            UP/DOWN change profile (shown at once, error if the Proxy refuses)
-//                    SELECT opens Confirm;  HOLD UP opens Settings;  BACK twice exits
-//   Confirm:         HOLD SELECT starts heating, BACK cancels
+//                    SELECT opens Confirm (on the Custom page: the editor first)
+//                    HOLD UP opens Settings;  BACK twice exits
+//   Custom editor:   UP/DOWN change temperature, SELECT; then time, SELECT; BACK goes back
+//   Confirm:         HOLD SELECT (or press it twice, per Settings) starts heating
 //   Cooling off:     HOLD SELECT skips the suggested wait
+//   Session:         SELECT twice boosts (+15 s, hotter)
 //   Preheat/Session: HOLD SELECT stops (holding BACK exits the app on the Round 2)
 //
 // Message contract: WatchProtocol.kt in the companion and "messageKeys" in package.json.
@@ -30,6 +33,8 @@
 #define CMD_ABORT 2
 #define CMD_REFRESH 3
 #define CMD_SKIP_COOLDOWN 4
+#define CMD_BOOST 5
+#define CMD_START_CUSTOM 6
 
 #define REFRESH_RETRY_MS 3000
 #define ECHO_TIMEOUT_MS 4000
@@ -47,7 +52,21 @@
 #define SET_NO_TINT 16
 #define SET_NO_SESSION_ALERTS 32
 #define SET_LIGHT_ON 64  // opt-in, so stored as an "on" flag
+#define SET_START_DOUBLE 128  // press SELECT twice to start, instead of holding it
 #define PERSIST_SETTINGS 1
+#define PERSIST_CUSTOM_F 2
+#define PERSIST_CUSTOM_S 3
+
+// The one-time custom page comes after the four stored profiles.
+#define CUSTOM_PAGE PROFILE_COUNT
+#define PAGE_COUNT (PROFILE_COUNT + 1)
+#define CUSTOM_RGB 0xFF5500
+#define CUSTOM_F_MIN 400
+#define CUSTOM_F_MAX 620
+#define CUSTOM_S_MIN 15
+#define CUSTOM_S_MAX 180
+#define DOUBLE_PRESS_MS 450
+#define BOOST_TIP_MS 5000
 
 #define DEG "\xc2\xb0"
 #define DOT " \xc2\xb7 "
@@ -84,7 +103,7 @@ static uint32_t s_p_rgb[PROFILE_COUNT];
 
 // ---- local state ----------------------------------------------------------------
 
-typedef enum { OUT_NONE, OUT_PROFILE, OUT_START, OUT_ABORT, OUT_REFRESH, OUT_SETTINGS } OutKind;
+typedef enum { OUT_NONE, OUT_PROFILE, OUT_START, OUT_ABORT, OUT_REFRESH, OUT_SETTINGS, OUT_BOOST, OUT_CUSTOM } OutKind;
 
 static OutKind s_out_kind = OUT_NONE;  // message currently in the outbox
 static int s_pending_cmd;              // START/ABORT/REFRESH waiting for the outbox
@@ -93,6 +112,12 @@ static int s_want_profile = -1;        // optimistic selection, -1 = none
 static bool s_profile_dirty;           // selection changed while a send was in flight
 
 static uint8_t s_settings;
+static bool s_custom_page;              // the custom page is showing (idle)
+static bool s_confirm_custom;           // the confirm screen is for a custom session
+static int s_custom_f = 500, s_custom_s = 60;
+static int s_edit_field;                // custom editor: 0 temperature, 1 time
+static uint64_t s_last_select_ms;       // for double-press detection
+static uint64_t s_active_at_ms;         // when the session reached temperature
 static char s_error[TEXT_LEN];
 static bool s_show_tip = true;         // "Hold UP: settings" right after launch
 
@@ -106,8 +131,8 @@ static int32_t s_fade_level = 1000;    // done-ring fade, permille
 static uint32_t s_frame;               // flicker counter
 static uint8_t s_anim_state = STATE_SEARCHING;
 
-static Window *s_main_window, *s_confirm_window, *s_settings_window;
-static Layer *s_main_canvas, *s_confirm_canvas;
+static Window *s_main_window, *s_confirm_window, *s_settings_window, *s_edit_window;
+static Layer *s_main_canvas, *s_confirm_canvas, *s_edit_canvas;
 static MenuLayer *s_menu;
 static AppTimer *s_refresh_timer, *s_echo_timer, *s_error_timer, *s_anim_timer, *s_tip_timer;
 
@@ -251,6 +276,9 @@ static const char *const SPARKLE[] = {
     "...XXX......", "....X.......", "....X.......",
 };
 
+static const char *const SLIDERS[] = {
+    ".X...X...X.", ".X...X...X.", "XXX..X...X.", ".X...X..XXX", ".X..XXX..X.", ".X...X...X.", ".X...X...X.",
+};
 static const char *const SNOWFLAKE[] = {
     ".....X.....", "..X..X..X..", "...X.X.X...", "....XXX....", ".X...X...X.", "XXXXXXXXXXX",
     ".X...X...X.", "....XXX....", "...X.X.X...", "..X..X..X..", ".....X.....",
@@ -347,6 +375,7 @@ static const char *prv_shown_name(void) { return prv_use_table() ? s_p_name[s_wa
 static uint16_t prv_shown_target(void) { return prv_use_table() ? s_p_target_f[s_want_profile] : s_target_f; }
 static uint16_t prv_shown_duration(void) { return prv_use_table() ? s_p_duration_s[s_want_profile] : s_duration_s; }
 static uint32_t __attribute__((unused)) prv_shown_rgb(void) {
+  if (s_custom_page && s_state == STATE_IDLE) return CUSTOM_RGB;
   return prv_use_table() ? s_p_rgb[s_want_profile] : s_ring_rgb;
 }
 
@@ -416,11 +445,25 @@ static void prv_send_cmd(int cmd) {
     return;
   }
   s_pending_cmd = 0;
-  const OutKind kind = cmd == CMD_START ? OUT_START : cmd == CMD_ABORT ? OUT_ABORT : OUT_REFRESH;
+  if (cmd == CMD_START_CUSTOM) {
+    DictionaryIterator *out;
+    bool ok = app_message_outbox_begin(&out) == APP_MSG_OK;
+    if (ok) {
+      dict_write_uint8(out, MESSAGE_KEY_CMD, CMD_START_CUSTOM);
+      dict_write_uint16(out, MESSAGE_KEY_CUSTOM_F, (uint16_t)s_custom_f);
+      dict_write_uint16(out, MESSAGE_KEY_CUSTOM_S, (uint16_t)s_custom_s);
+      ok = app_message_outbox_send() == APP_MSG_OK;
+    }
+    if (ok) s_out_kind = OUT_CUSTOM;
+    else prv_show_error("Start failed");
+    return;
+  }
+  const OutKind kind = cmd == CMD_START ? OUT_START : cmd == CMD_ABORT ? OUT_ABORT : cmd == CMD_BOOST ? OUT_BOOST : OUT_REFRESH;
   // Refresh also carries the settings, so the phone knows them from the start.
   if (cmd == CMD_REFRESH) s_settings_dirty = false;
   if (!prv_send_dict(kind, MESSAGE_KEY_CMD, (uint8_t)cmd, cmd == CMD_REFRESH) && cmd != CMD_REFRESH) {
-    prv_show_error(cmd == CMD_START ? "Start failed" : cmd == CMD_ABORT ? "Stop failed" : "Couldn't reach phone");
+    prv_show_error(cmd == CMD_START ? "Start failed" : cmd == CMD_ABORT ? "Stop failed"
+                   : cmd == CMD_BOOST ? "Boost failed" : "Couldn't reach phone");
   }
 }
 
@@ -457,8 +500,11 @@ static void prv_outbox_sent(DictionaryIterator *iter, void *ctx) {
   if (kind == OUT_PROFILE && !s_profile_dirty) {
     if (s_echo_timer) app_timer_cancel(s_echo_timer);
     s_echo_timer = app_timer_register(ECHO_TIMEOUT_MS, prv_echo_timer, NULL);
-  } else if (kind == OUT_START) {
+  } else if (kind == OUT_START || kind == OUT_CUSTOM) {
     prv_vibe_double();
+  } else if (kind == OUT_BOOST) {
+    prv_vibe_short();
+    prv_toast("Boost! +15s", 1500);
   }
   prv_pump_outbox();
 }
@@ -472,8 +518,10 @@ static void prv_outbox_failed(DictionaryIterator *iter, AppMessageResult reason,
     s_profile_dirty = false;
     prv_apply_backlight_tint();
     prv_show_error("Profile not changed");
-  } else if (kind == OUT_START) {
+  } else if (kind == OUT_START || kind == OUT_CUSTOM) {
     prv_show_error("Start failed");
+  } else if (kind == OUT_BOOST) {
+    prv_show_error("Boost failed");
   } else if (kind == OUT_ABORT) {
     prv_show_error("Stop failed");
   } else if (kind == OUT_SETTINGS) {
@@ -553,6 +601,7 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     if (prev == STATE_IDLE && s_state == STATE_PREHEAT) {
       light_enable_interaction();  // heat started
     } else if (prev == STATE_PREHEAT && s_state == STATE_ACTIVE) {
+      s_active_at_ms = prv_now_ms();
       prv_alert(ALERT_START, ARRAY_LENGTH(ALERT_START));  // at temperature: session fully started
     } else if (prev == STATE_ACTIVE && s_state == STATE_FADE) {
       light_enable_interaction();  // session complete
@@ -601,7 +650,7 @@ static void prv_focus(bool in_focus) {
 
 // ---- view ------------------------------------------------------------------------
 
-typedef enum { ICON_NONE, ICON_FLAME, ICON_FLAME_FLICKER, ICON_CHECK, ICON_SPARKLE, ICON_DOTS, ICON_SNOW } Icon;
+typedef enum { ICON_NONE, ICON_FLAME, ICON_FLAME_FLICKER, ICON_CHECK, ICON_SPARKLE, ICON_DOTS, ICON_SNOW, ICON_SLIDERS } Icon;
 
 // Every page has the same four text roles, each in one fixed font, so sizes never jump:
 //   hero    big pixel text (or Gothic 28 for characters the pixel font lacks)
@@ -653,17 +702,37 @@ static void prv_build_view(View *v, bool confirm) {
 
   const char *u = prv_unit();
   if (confirm) {
-    const int d = prv_shown_duration();
+    const bool custom = s_confirm_custom;
+    const int d = custom ? s_custom_s : prv_shown_duration();
+    const int t = custom ? s_custom_f : prv_shown_target();
+#ifdef PBL_COLOR
+    if (custom) {
+      v->bg = GColorFromHEX(CUSTOM_RGB);
+      v->fg = prv_contrast(CUSTOM_RGB);
+    }
+#endif
     v->icon = ICON_FLAME;
     snprintf(v->hero, sizeof(v->hero), "Heat?");
-    snprintf(v->sub, sizeof(v->sub), "%s", prv_shown_name());
-    snprintf(v->detail, sizeof(v->detail), "%d" DEG "%s" DOT "%d:%02d", prv_temp(prv_shown_target()), u, d / 60, d % 60);
-    snprintf(v->hint, sizeof(v->hint), "Hold SELECT to heat");
+    snprintf(v->sub, sizeof(v->sub), "%s", custom ? "Custom" : prv_shown_name());
+    snprintf(v->detail, sizeof(v->detail), "%d" DEG "%s" DOT "%d:%02d", prv_temp(t), u, d / 60, d % 60);
+    snprintf(v->hint, sizeof(v->hint), "%s", prv_set(SET_START_DOUBLE) ? "Press SELECT twice" : "Hold SELECT to heat");
     return;
   }
 
   switch (s_state) {
     case STATE_IDLE: {
+      if (s_custom_page) {
+        // One-time session with your own temperature and time; nothing on the Proxy changes.
+        v->icon = ICON_SLIDERS;
+        v->profile_page = true;
+        snprintf(v->hero, sizeof(v->hero), "Custom");
+        snprintf(v->sub, sizeof(v->sub), "One-time session");
+        snprintf(v->detail, sizeof(v->detail), "%d" DEG "%s" DOT "%d:%02d", prv_temp(s_custom_f), u,
+                 s_custom_s / 60, s_custom_s % 60);
+        if (s_show_tip) snprintf(v->hint, sizeof(v->hint), "Hold UP: settings");
+        v->battery = true;
+        break;
+      }
       const int d = prv_shown_duration();
       v->icon = ICON_SPARKLE;
       v->profile_page = true;
@@ -697,7 +766,11 @@ static void prv_build_view(View *v, bool confirm) {
         if (v->arc > 1000) v->arc = 1000;
       }
       snprintf(v->sub, sizeof(v->sub), "Enjoy!");
-      snprintf(v->detail, sizeof(v->detail), "Heater %d" DEG "%s", prv_temp(s_heater_f), u);
+      if (s_active_at_ms && prv_now_ms() - s_active_at_ms < BOOST_TIP_MS) {
+        snprintf(v->detail, sizeof(v->detail), "SELECT twice: boost");
+      } else {
+        snprintf(v->detail, sizeof(v->detail), "Heater %d" DEG "%s", prv_temp(s_heater_f), u);
+      }
       snprintf(v->hint, sizeof(v->hint), "Hold SELECT to stop");
       break;
     }
@@ -988,6 +1061,7 @@ static void prv_draw_page(GContext *ctx, GRect full, const View *vp, bool confir
     case ICON_CHECK: sprite = SPRITE(CHECK); break;
     case ICON_SPARKLE: sprite = SPRITE(SPARKLE); break;
     case ICON_SNOW: sprite = SPRITE(SNOWFLAKE); break;
+    case ICON_SLIDERS: sprite = SPRITE(SLIDERS); break;
     case ICON_DOTS: case ICON_NONE: break;
   }
   const int icon_h = v.icon == ICON_DOTS ? 3 * icon_scale : v.icon == ICON_NONE ? 0 : sprite.h * icon_scale;
@@ -1049,7 +1123,16 @@ static void prv_draw_page(GContext *ctx, GRect full, const View *vp, bool confir
   if (v.battery) {
     const int bs = 2;
     if (round) {
-      prv_battery_draw(ctx, cx - 6 * bs, top + edge + thick + 8, bs, s_batt);
+      // Icon and percentage side by side, centered at the top.
+      char pct[6];
+      snprintf(pct, sizeof(pct), "%u%%", s_batt);
+      const GFont f = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+      const int tw = graphics_text_layout_get_content_size(pct, f, GRect(0, 0, 60, 16),
+                                                           GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft).w;
+      const int total = 12 * bs + 4 + tw, x0 = cx - total / 2, by = top + edge + thick + 8;
+      prv_battery_draw(ctx, x0, by, bs, s_batt);
+      graphics_draw_text(ctx, pct, f, GRect(x0 + 12 * bs + 4, by - 5, tw + 2, 16), GTextOverflowModeTrailingEllipsis,
+                         GTextAlignmentLeft, NULL);
     } else {
       const int bx = b.size.w - edge - thick - 4 - 12 * bs, by = top + edge + thick + 3;
       char pct[6];
@@ -1116,9 +1199,12 @@ static void prv_draw(Layer *layer, GContext *ctx, bool confirm) {
     const int h = b.size.h;
     View old;
     const int keep = s_want_profile;
-    s_want_profile = s_slide_from;
+    const bool keep_custom = s_custom_page;
+    s_custom_page = s_slide_from == CUSTOM_PAGE;
+    if (!s_custom_page) s_want_profile = s_slide_from;
     prv_build_view(&old, false);
     s_want_profile = keep;
+    s_custom_page = keep_custom;
     prv_draw_page(ctx, b, &old, false, -s_slide_dir * h * e / 1000, false);
     prv_draw_page(ctx, b, &v, false, s_slide_dir * h * (1000 - e) / 1000, true);
   }
@@ -1137,6 +1223,7 @@ typedef struct {
 
 static const SettingRow SETTING_ROWS[] = {
     {"Temperature", SET_CELSIUS},
+    {"Start heating", SET_START_DOUBLE},
     {"Session alerts", SET_NO_SESSION_ALERTS},
     {"Button buzz", SET_NO_VIBES},
     {"Light always on", SET_LIGHT_ON},
@@ -1155,8 +1242,9 @@ static void prv_menu_draw_row(GContext *ctx, const Layer *cell, MenuIndex *idx, 
   const char *value;
   if (row->bit == SET_CELSIUS) value = prv_set(SET_CELSIUS) ? DEG "C" : DEG "F";
   else if (row->bit == SET_LIGHT_ON) value = prv_set(SET_LIGHT_ON) ? "On" : "Off";
+  else if (row->bit == SET_START_DOUBLE) value = prv_set(SET_START_DOUBLE) ? "Press SELECT twice" : "Hold SELECT";
   else if (row->bit) value = prv_set(row->bit) ? "Off" : "On";
-  else value = "Puffble 0.5";
+  else value = "Puffble 0.6";
   menu_cell_basic_draw(ctx, cell, row->title, value, NULL);
 }
 
@@ -1198,21 +1286,28 @@ static void prv_settings_unload(Window *w) {
 
 static void prv_step_profile(int delta) {
   if (!prv_ready() || s_state != STATE_IDLE) return;
-  const int old = prv_shown_profile();
-  s_want_profile = (old + PROFILE_COUNT + delta) % PROFILE_COUNT;
-  if (s_echo_timer) {
-    app_timer_cancel(s_echo_timer);
-    s_echo_timer = NULL;
-  }
+  // Pages: the four stored profiles, then the custom one-time page.
+  const int old = s_custom_page ? CUSTOM_PAGE : prv_shown_profile();
+  const int next = (old + PAGE_COUNT + delta) % PAGE_COUNT;
   s_error[0] = '\0';
   if (prv_animate() && s_have_table) {
     s_slide_from = old;  // the new page swipes in from the side you pressed
     s_slide_dir = delta;
     s_slide_p = 0;
   }
+  if (next == CUSTOM_PAGE) {
+    s_custom_page = true;  // local only: nothing is sent until you start a custom session
+  } else {
+    s_custom_page = false;
+    s_want_profile = next;
+    if (s_echo_timer) {
+      app_timer_cancel(s_echo_timer);
+      s_echo_timer = NULL;
+    }
+  }
   prv_apply_backlight_tint();
   prv_redraw();  // show it now; the Proxy write follows
-  prv_send_profile();
+  if (next != CUSTOM_PAGE) prv_send_profile();
 }
 
 static void prv_up(ClickRecognizerRef r, void *ctx) { prv_step_profile(-1); }
@@ -1225,8 +1320,26 @@ static void prv_up_long(ClickRecognizerRef r, void *ctx) {
 }
 
 static void prv_select(ClickRecognizerRef r, void *ctx) {
-  if (prv_ready() && s_state == STATE_IDLE) window_stack_push(s_confirm_window, true);
-  else if (prv_ready() && s_state == STATE_COOLDOWN) prv_toast("Cooling off. Hold SELECT to skip", 2000);
+  const uint64_t now = prv_now_ms();
+  if (prv_ready() && s_state == STATE_IDLE) {
+    if (s_custom_page) {
+      s_edit_field = 0;
+      window_stack_push(s_edit_window, true);
+    } else {
+      s_confirm_custom = false;
+      window_stack_push(s_confirm_window, true);
+    }
+  } else if (prv_ready() && s_state == STATE_COOLDOWN) {
+    prv_toast("Cooling off. Hold SELECT to skip", 2000);
+  } else if (prv_ready() && s_state == STATE_ACTIVE) {
+    // Two quick presses during a session: boost.
+    if (now - s_last_select_ms < DOUBLE_PRESS_MS) {
+      s_last_select_ms = 0;
+      prv_send_cmd(CMD_BOOST);
+      return;
+    }
+  }
+  s_last_select_ms = now;
 }
 
 static void prv_select_long(ClickRecognizerRef r, void *ctx) {
@@ -1257,13 +1370,100 @@ static void prv_main_clicks(void *ctx) {
   window_long_click_subscribe(BUTTON_ID_SELECT, LONG_PRESS_MS, prv_select_long, NULL);
 }
 
-static void prv_confirm_long_select(ClickRecognizerRef r, void *ctx) {
-  if (prv_ready() && s_state == STATE_IDLE) prv_send_cmd(CMD_START);
+static void prv_confirm_start(ClickRecognizerRef r, void *ctx) {
+  const bool custom = s_confirm_custom;
+  if (prv_ready() && s_state == STATE_IDLE) prv_send_cmd(custom ? CMD_START_CUSTOM : CMD_START);
+  window_stack_pop(true);
+  if (custom) window_stack_remove(s_edit_window, false);  // back to the main screen
+}
+
+/** Start gesture is a setting: hold SELECT (default) or press it twice. */
+static void prv_confirm_clicks(void *ctx) {
+  if (prv_set(SET_START_DOUBLE)) {
+    window_multi_click_subscribe(BUTTON_ID_SELECT, 2, 2, DOUBLE_PRESS_MS, true, prv_confirm_start);
+  } else {
+    window_long_click_subscribe(BUTTON_ID_SELECT, LONG_PRESS_MS, prv_confirm_start, NULL);
+  }
+}
+
+// ---- custom session editor ----------------------------------------------------------------
+
+static void prv_edit_draw(Layer *layer, GContext *ctx) {
+  const GRect b = layer_get_bounds(layer);
+  View v;
+  memset(&v, 0, sizeof(v));
+  v.arc = -1;
+#ifdef PBL_COLOR
+  v.bg = GColorFromHEX(CUSTOM_RGB);
+  v.fg = prv_contrast(CUSTOM_RGB);
+#else
+  v.bg = GColorBlack;
+  v.fg = GColorWhite;
+#endif
+  v.icon = ICON_SLIDERS;
+  if (s_edit_field == 0) {
+    snprintf(v.hero, sizeof(v.hero), "%d" PX_DEG, prv_temp(s_custom_f));
+    snprintf(v.sub, sizeof(v.sub), "Temperature");
+    snprintf(v.hint, sizeof(v.hint), "SELECT for time");
+  } else {
+    snprintf(v.hero, sizeof(v.hero), "%d:%02d", s_custom_s / 60, s_custom_s % 60);
+    snprintf(v.sub, sizeof(v.sub), "Session time");
+    snprintf(v.hint, sizeof(v.hint), "SELECT when ready");
+  }
+  snprintf(v.detail, sizeof(v.detail), "UP and DOWN to change");
+  prv_draw_page(ctx, b, &v, true, 0, false);
+  prv_draw_toast(ctx, b, v.fg, v.bg);
+}
+
+static void prv_edit_step(int delta) {
+  if (s_edit_field == 0) {
+    s_custom_f += delta * 5;
+    if (s_custom_f < CUSTOM_F_MIN) s_custom_f = CUSTOM_F_MIN;
+    if (s_custom_f > CUSTOM_F_MAX) s_custom_f = CUSTOM_F_MAX;
+  } else {
+    s_custom_s += delta * 5;
+    if (s_custom_s < CUSTOM_S_MIN) s_custom_s = CUSTOM_S_MIN;
+    if (s_custom_s > CUSTOM_S_MAX) s_custom_s = CUSTOM_S_MAX;
+  }
+  if (s_edit_canvas) layer_mark_dirty(s_edit_canvas);
+  if (s_main_canvas) layer_mark_dirty(s_main_canvas);
+}
+
+static void prv_edit_up(ClickRecognizerRef r, void *ctx) { prv_edit_step(1); }
+static void prv_edit_down(ClickRecognizerRef r, void *ctx) { prv_edit_step(-1); }
+
+static void prv_edit_select(ClickRecognizerRef r, void *ctx) {
+  if (s_edit_field == 0) {
+    s_edit_field = 1;
+    if (s_edit_canvas) layer_mark_dirty(s_edit_canvas);
+    return;
+  }
+  persist_write_int(PERSIST_CUSTOM_F, s_custom_f);
+  persist_write_int(PERSIST_CUSTOM_S, s_custom_s);
+  if (!(prv_ready() && s_state == STATE_IDLE)) {
+    prv_toast("Proxy isn't ready", 2000);
+    return;
+  }
+  s_confirm_custom = true;
+  window_stack_push(s_confirm_window, true);
+}
+
+static void prv_edit_back(ClickRecognizerRef r, void *ctx) {
+  if (s_edit_field == 1) {
+    s_edit_field = 0;  // back from time to temperature
+    if (s_edit_canvas) layer_mark_dirty(s_edit_canvas);
+    return;
+  }
+  persist_write_int(PERSIST_CUSTOM_F, s_custom_f);
+  persist_write_int(PERSIST_CUSTOM_S, s_custom_s);
   window_stack_pop(true);
 }
 
-static void prv_confirm_clicks(void *ctx) {
-  window_long_click_subscribe(BUTTON_ID_SELECT, LONG_PRESS_MS, prv_confirm_long_select, NULL);
+static void prv_edit_clicks(void *ctx) {
+  window_single_repeating_click_subscribe(BUTTON_ID_UP, 120, prv_edit_up);
+  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 120, prv_edit_down);
+  window_single_click_subscribe(BUTTON_ID_SELECT, prv_edit_select);
+  window_single_click_subscribe(BUTTON_ID_BACK, prv_edit_back);
 }
 
 // ---- windows ---------------------------------------------------------------------
@@ -1282,6 +1482,11 @@ static void prv_main_unload(Window *w) {
   s_main_canvas = NULL;
 }
 static void prv_confirm_load(Window *w) { s_confirm_canvas = prv_add_canvas(w, prv_confirm_draw); }
+static void prv_edit_load(Window *w) { s_edit_canvas = prv_add_canvas(w, prv_edit_draw); }
+static void prv_edit_unload(Window *w) {
+  layer_destroy(s_edit_canvas);
+  s_edit_canvas = NULL;
+}
 static void prv_confirm_unload(Window *w) {
   layer_destroy(s_confirm_canvas);
   s_confirm_canvas = NULL;
@@ -1326,6 +1531,8 @@ static void prv_demo(void) {
 
 static void prv_init(void) {
   s_settings = persist_exists(PERSIST_SETTINGS) ? persist_read_int(PERSIST_SETTINGS) : 0;
+  if (persist_exists(PERSIST_CUSTOM_F)) s_custom_f = persist_read_int(PERSIST_CUSTOM_F);
+  if (persist_exists(PERSIST_CUSTOM_S)) s_custom_s = persist_read_int(PERSIST_CUSTOM_S);
 #ifdef PUFFBLE_DEMO
   prv_demo();
 #endif
@@ -1343,6 +1550,10 @@ static void prv_init(void) {
   window_set_click_config_provider(s_confirm_window, prv_confirm_clicks);
   window_set_window_handlers(s_confirm_window,
                              (WindowHandlers){.load = prv_confirm_load, .unload = prv_confirm_unload});
+
+  s_edit_window = window_create();
+  window_set_click_config_provider(s_edit_window, prv_edit_clicks);
+  window_set_window_handlers(s_edit_window, (WindowHandlers){.load = prv_edit_load, .unload = prv_edit_unload});
 
   s_settings_window = window_create();
   window_set_window_handlers(s_settings_window,
@@ -1362,6 +1573,7 @@ static void prv_deinit(void) {
   light_enable(false);
   app_focus_service_unsubscribe();
   tick_timer_service_unsubscribe();
+  window_destroy(s_edit_window);
   window_destroy(s_settings_window);
   window_destroy(s_confirm_window);
   window_destroy(s_main_window);

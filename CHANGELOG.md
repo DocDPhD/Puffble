@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+- Custom one-time session: a fifth page after your profiles. Pick a temperature (400–620°F) and time
+  (15 s–3:00) for one session; your stored profiles stay as they are.
+- Boost: press Select twice during a session (+15 s, hotter), the standard Puffco boost.
+- New setting: start heating by holding Select (default) or pressing it twice.
+- Proxy battery percentage on the profile page on the Round 2 too.
+- Phone app: optional, off-by-default guide to turn off battery optimization.
+
 ## 0.5.1
 
 - Puffble now supports the Pebble Round 2 and Pebble Time 2 only, the two watches it's tested on.

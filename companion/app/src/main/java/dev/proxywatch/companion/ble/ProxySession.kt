@@ -59,6 +59,8 @@ object ProxyDevices {
 class CycleTimer {
     private var lastState: Int? = null
     private var activeSinceMs: Long? = null
+    private var startDurationS = 0
+    private var boostedS = 0
 
     /** Feed every poll. Returns seconds left in the active phase, or null if unknown. */
     fun update(state: Int, durationS: Int, nowMs: Long): Int? {
@@ -66,17 +68,29 @@ class CycleTimer {
         lastState = state
         if (state != OperatingState.ACTIVE) {
             activeSinceMs = null
+            boostedS = 0
             return null
         }
         // Only time a phase we saw begin; joining mid-cycle leaves the countdown unknown.
-        if (prev != null && prev != OperatingState.ACTIVE) activeSinceMs = nowMs
+        if (prev != null && prev != OperatingState.ACTIVE) {
+            activeSinceMs = nowMs
+            startDurationS = durationS
+        }
         val since = activeSinceMs ?: return null
-        return (durationS - ((nowMs - since) / 1000).toInt()).coerceAtLeast(0)
+        // Boost adds time. If the Proxy also raises its own session length, count it once.
+        val extra = (boostedS - (durationS - startDurationS)).coerceAtLeast(0)
+        return (durationS + extra - ((nowMs - since) / 1000).toInt()).coerceAtLeast(0)
+    }
+
+    /** A boost was accepted during the active phase. */
+    fun boost(seconds: Int) {
+        if (lastState == OperatingState.ACTIVE) boostedS += seconds
     }
 
     fun reset() {
         lastState = null
         activeSinceMs = null
+        boostedS = 0
     }
 }
 
@@ -211,6 +225,8 @@ object ProxySession {
         val cooldownReason: String = "",
         /** Last heater reading, kept through a disconnect so the cool-down screen can show it. */
         val lastHeaterDeciC: Long? = null,
+        /** The running (or just-started) session is a one-time custom one, not a stored profile. */
+        val custom: Boolean = false,
     ) {
         val currentProfile: ProfileInfo? get() = live?.let { profiles.getOrNull(it.profile) }
     }
@@ -237,6 +253,16 @@ object ProxySession {
     val snapshot: StateFlow<Snapshot> = _snapshot
 
     const val COOLDOWN_S = 120
+    const val BOOST_S = 15
+
+    /** Custom-session limits, matching the watch's editor. */
+    val CUSTOM_F_RANGE = 400..620
+    val CUSTOM_S_RANGE = 15..180
+
+    /** Profile to restore after a custom session, or null when none is running. */
+    @Volatile private var customFor: Int? = null
+    @Volatile private var lastStartAt = Long.MIN_VALUE / 2
+    private const val CUSTOM_SETTLE_MS = 6_000L  // time for the Proxy to leave idle after a start
     private val cooldown = CooldownDetector(COOLDOWN_S * 1000L)
     private var cooldownReason = ""
     private var lastHeater: Long? = null
@@ -248,6 +274,7 @@ object ProxySession {
         get() = _snapshot.value
         set(v) {
             _snapshot.value = v.copy(
+                custom = customFor != null,
                 cooldownRemainS = cooldown.remainingS(now()),
                 cooldownReason = cooldownReason,
                 lastHeaterDeciC = v.live?.heaterDeciC ?: lastHeater,
@@ -347,8 +374,45 @@ object ProxySession {
         // The real device state: the snapshot may be showing a brief synthetic "done".
         if (deviceState != OperatingState.IDLE) throw IOException("Proxy is not idle")
         c.startHeatCycle()
+        lastStartAt = now()
         cooldown.onStartSent(now())
         kick.trySend(Unit)
+    }
+
+    /** Starts a one-time custom session. Callers must already have the user's explicit confirmation. */
+    suspend fun startCustomHeatCycle(tempF: Int, seconds: Int) {
+        require(tempF in CUSTOM_F_RANGE && seconds in CUSTOM_S_RANGE) { "custom session out of range" }
+        val c = ready()
+        if (deviceState != OperatingState.IDLE) throw IOException("Proxy is not idle")
+        customFor = _snapshot.value.live?.profile ?: 0
+        try {
+            c.startCustomHeatCycle(
+                dev.proxywatch.companion.lorax.Units.fahrenheitToDeciC(tempF),
+                dev.proxywatch.companion.lorax.Units.secondsToTicks(seconds),
+            )
+        } catch (e: Exception) {
+            restoreProfileAfterCustom(c)
+            throw e
+        }
+        lastStartAt = now()
+        cooldown.onStartSent(now())
+        kick.trySend(Unit)
+    }
+
+    /** Standard Puffco boost during a session: hotter, and [BOOST_S] seconds longer. */
+    suspend fun boostHeatCycle() {
+        val c = ready()
+        if (deviceState != OperatingState.ACTIVE) throw IOException("Boost works during a session")
+        c.boostHeatCycle()
+        timer.boost(BOOST_S)
+        kick.trySend(Unit)
+    }
+
+    /** Re-selects the profile that was current before a custom session, reloading its values. */
+    private suspend fun restoreProfileAfterCustom(c: ProxyClient) {
+        val index = customFor ?: return
+        customFor = null
+        runCatching { c.selectProfile(index) }.onFailure { Log.w(TAG, "restore after custom failed: ${it.message}") }
     }
 
     suspend fun abortHeatCycle() {
@@ -390,6 +454,10 @@ object ProxySession {
                     val remain = timer.update(device.operatingState, durationS, now())
                     val aborted = now() - lastAbortAt < ABORT_WINDOW_MS
                     lastHeater = device.heaterDeciC
+                    // A custom session is over once the Proxy is idle again (finished, stopped or refused).
+                    if (customFor != null && device.operatingState == OperatingState.IDLE &&
+                        now() - lastStartAt > CUSTOM_SETTLE_MS
+                    ) restoreProfileAfterCustom(c)
                     lastBatterySoc = battery
                     if (cooldown.onPoll(device.operatingState, now(), aborted)) onCooldownChanged()
                     if (ends.update(device.operatingState, remain, aborted)) {

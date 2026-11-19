@@ -104,6 +104,7 @@ object Paths {
 object ModeCommand {
     const val HEAT_CYCLE_START = 7
     const val HEAT_CYCLE_ABORT = 8
+    const val HEAT_CYCLE_BOOST = 9  // standard Puffco boost: hotter, and the session runs longer
 }
 
 object OperatingState {
@@ -128,6 +129,10 @@ object OperatingState {
 object Units {
     /** Device temperatures are tenths of a degree Celsius. */
     fun deciCToFahrenheit(deciC: Long): Int = Math.round(deciC / 10.0 * 9 / 5 + 32).toInt()
+
+    fun fahrenheitToDeciC(f: Int): Long = Math.round((f - 32) * 50.0 / 9)
+
+    fun secondsToTicks(s: Int): Long = s * 200L
 
     /** Device durations are in 1/200 s ticks. */
     fun ticksToSeconds(ticks: Long): Int = (ticks / 200).toInt()

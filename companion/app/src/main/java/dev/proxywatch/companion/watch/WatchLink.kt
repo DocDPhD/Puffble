@@ -190,7 +190,9 @@ class WatchListenerService : BasePebbleListenerService() {
         PuffbleSettings.markWatchSeen(this)
         val settings = data[Key.SETTINGS].asInt()
         if (settings != null) PuffbleSettings.save(this, settings)
-        val command = WatchProtocol.parseCommand(data[Key.CMD].asInt(), data[Key.SET_PROFILE].asInt())
+        val command = WatchProtocol.parseCommand(
+            data[Key.CMD].asInt(), data[Key.SET_PROFILE].asInt(), data[Key.CUSTOM_F].asInt(), data[Key.CUSTOM_S].asInt(),
+        )
         Log.d(TAG, "command $command settings $settings from $data")
         if (command == null && settings != null) return ReceiveResult.Ack
         try {
@@ -202,6 +204,9 @@ class WatchListenerService : BasePebbleListenerService() {
                 Command.AbortHeat -> ProxySession.abortHeatCycle()
                 is Command.SelectProfile -> ProxySession.selectProfile(command.index)
                 Command.SkipCooldown -> ProxySession.skipCooldown()
+                Command.Boost -> ProxySession.boostHeatCycle()
+                // Like StartHeat, only sent after the watch's own confirm screen.
+                is Command.StartCustom -> ProxySession.startCustomHeatCycle(command.tempF, command.seconds)
                 null -> return ReceiveResult.Nack
             }
         } catch (e: CancellationException) {

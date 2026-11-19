@@ -1,7 +1,7 @@
 {
   "name": "puffble",
   "author": "DocDPhD",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "keywords": ["pebble-app"],
   "dependencies": {},
@@ -34,7 +34,9 @@
       "SET_PROFILE",
       "CMD",
       "STATUS_TEXT",
-      "SETTINGS"
+      "SETTINGS",
+      "CUSTOM_F",
+      "CUSTOM_S"
     ],
     "resources": {
       "media": [

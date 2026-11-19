@@ -170,6 +170,44 @@ class WatchProtocolTest {
         assertEquals(WatchProtocol.Command.SkipCooldown, WatchProtocol.parseCommand(4, null))
     }
 
+    @Test fun boostAddsFifteenSecondsOnce() {
+        val t = CycleTimer()
+        t.update(7, 120, 0)
+        assertEquals(120, t.update(8, 120, 1_000))
+        t.boost(15)
+        assertEquals(125, t.update(8, 120, 11_000))   // 110 left + 15
+        assertEquals(125, t.update(8, 135, 11_000))   // Proxy raised its own length: not counted twice
+        t.boost(15)
+        assertEquals(140, t.update(8, 135, 11_000))
+    }
+
+    @Test fun boostOutsideActiveIsIgnored() {
+        val t = CycleTimer()
+        t.update(7, 120, 0)
+        t.boost(15)
+        assertEquals(120, t.update(8, 120, 1_000))
+    }
+
+    @Test fun parsesBoostAndCustomStart() {
+        assertEquals(Command.Boost, WatchProtocol.parseCommand(5, null))
+        assertEquals(Command.StartCustom(500, 45), WatchProtocol.parseCommand(6, null, 500, 45))
+        assertNull(WatchProtocol.parseCommand(6, null, 700, 45))   // too hot
+        assertNull(WatchProtocol.parseCommand(6, null, 500, 5))    // too short
+        assertNull(WatchProtocol.parseCommand(6, null, null, 45))
+    }
+
+    @Test fun customSessionShowsAsCustom() {
+        val m = WatchProtocol.fromSnapshot(ready.copy(live = idle.copy(operatingState = 7), custom = true))
+        assertEquals("Custom", m.profileName)
+        assertEquals(WatchProtocol.CUSTOM_RGB, m.ringRgb)
+    }
+
+    @Test fun fahrenheitRoundTrips() {
+        assertEquals(2600L, dev.proxywatch.companion.lorax.Units.fahrenheitToDeciC(500))
+        assertEquals(500, dev.proxywatch.companion.lorax.Units.deciCToFahrenheit(2600))
+        assertEquals(9000L, dev.proxywatch.companion.lorax.Units.secondsToTicks(45))
+    }
+
     @Test fun cycleTimerIsUnknownWhenJoiningMidCycle() {
         val t = CycleTimer()
         assertNull(t.update(8, 120, 0))

@@ -34,6 +34,8 @@ object WatchProtocol {
         const val CMD = 10026u
         const val STATUS_TEXT = 10027u
         const val SETTINGS = 10028u
+        const val CUSTOM_F = 10029u
+        const val CUSTOM_S = 10030u
     }
 
     /** SETTINGS bits from the watch (stored as "off" flags; 0 = defaults). */
@@ -45,6 +47,7 @@ object WatchProtocol {
         const val NO_TINT = 16
         const val NO_SESSION_ALERTS = 32
         const val LIGHT_ON = 64
+        const val START_DOUBLE = 128  // watch-only: double-press instead of hold to start
     }
 
     fun pinsEnabled(settings: Int): Boolean = settings and SettingBit.NO_PINS == 0
@@ -70,6 +73,10 @@ object WatchProtocol {
 
     /** Ring color used when a profile's color is unknown. */
     const val DEFAULT_RGB = 0x303030
+
+    /** Page color for a one-time custom session (matches the watch's custom page). */
+    const val CUSTOM_RGB = 0xFF5500
+    const val CUSTOM_NAME = "Custom"
 
     data class ProfileEntry(val name: String, val targetF: Int, val durationS: Int, val rgb: Int)
 
@@ -125,13 +132,13 @@ object WatchProtocol {
         return WatchMessage(
             state = live.operatingState,
             profileIdx = live.profile,
-            profileName = profile?.name.orEmpty().take(MAX_NAME),
+            profileName = if (s.custom) CUSTOM_NAME else profile?.name.orEmpty().take(MAX_NAME),
             targetF = Units.deciCToFahrenheit(live.targetDeciC),
             durationS = Units.ticksToSeconds(live.durationTicks),
             heaterF = Units.deciCToFahrenheit(live.heaterDeciC),
             remainS = s.remainS ?: -1,
             battPct = s.batterySoc?.let { Units.socToPercent(it).coerceIn(0, 100) } ?: 0,
-            ringRgb = profile?.rgb ?: DEFAULT_RGB,
+            ringRgb = if (s.custom) CUSTOM_RGB else profile?.rgb ?: DEFAULT_RGB,
         )
     }
 
@@ -142,15 +149,24 @@ object WatchProtocol {
         data object AbortHeat : Command
         data class SelectProfile(val index: Int) : Command
         data object SkipCooldown : Command
+        data object Boost : Command
+        data class StartCustom(val tempF: Int, val seconds: Int) : Command
     }
 
-    /** CMD: 1 start, 2 abort, 3 refresh, 4 skip cool-down. SET_PROFILE stands alone. */
-    fun parseCommand(cmd: Int?, setProfile: Int?): Command? = when {
+    /**
+     * CMD: 1 start, 2 abort, 3 refresh, 4 skip cool-down, 5 boost, 6 start custom (with CUSTOM_F
+     * and CUSTOM_S, which must be in range). SET_PROFILE stands alone.
+     */
+    fun parseCommand(cmd: Int?, setProfile: Int?, customF: Int? = null, customS: Int? = null): Command? = when {
         setProfile != null -> setProfile.takeIf { it in 0..3 }?.let { Command.SelectProfile(it) }
         cmd == 1 -> Command.StartHeat
         cmd == 2 -> Command.AbortHeat
         cmd == 3 -> Command.Refresh
         cmd == 4 -> Command.SkipCooldown
+        cmd == 5 -> Command.Boost
+        cmd == 6 -> if (customF in ProxySession.CUSTOM_F_RANGE && customS in ProxySession.CUSTOM_S_RANGE) {
+            Command.StartCustom(customF!!, customS!!)
+        } else null
         else -> null
     }
 }

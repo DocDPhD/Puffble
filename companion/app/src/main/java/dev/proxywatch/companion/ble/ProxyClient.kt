@@ -163,6 +163,23 @@ class ProxyClient(private val context: Context) {
     suspend fun abortHeatCycle() =
         write(Paths.MODE_COMMAND, byteArrayOf(ModeCommand.HEAT_CYCLE_ABORT.toByte()))
 
+    suspend fun boostHeatCycle() =
+        write(Paths.MODE_COMMAND, byteArrayOf(ModeCommand.HEAT_CYCLE_BOOST.toByte()))
+
+    /**
+     * One-time session: writes the temporary heat cycle (the values a session runs with) and
+     * starts it. Stored profiles are untouched; re-selecting a profile reloads its values.
+     * Callers must get explicit user confirmation first.
+     */
+    suspend fun startCustomHeatCycle(tempDeciC: Long, ticks: Long) {
+        write(Paths.TARGET_TEMP, u32(tempDeciC))
+        write(Paths.TARGET_TIME, u32(ticks))
+        startHeatCycle()
+    }
+
+    private fun u32(v: Long): ByteArray =
+        java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(v.toInt()).array()
+
     // ---- Lorax commands -----------------------------------------------------
 
     suspend fun read(path: String, size: Int = Lorax.MAX_CHUNK): ByteArray =
