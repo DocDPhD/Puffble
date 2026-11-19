@@ -29,21 +29,17 @@
     <string name="action_open_pebble">Open</string>
 
     <string name="battery_switch">Keep Puffble running in the background</string>
+    <string name="optional_heading">OPTIONAL</string>
+    <string name="battery_on_todo">Tap Allow, then choose Allow so Android doesn\'t pause Puffble. On Samsung phones, also check Settings › Battery › Background usage limits.</string>
+    <string name="battery_on_done">On. Android won\'t put Puffble to sleep.</string>
+    <string name="link_update">Check for updates</string>
+    <string name="link_update_checking">Checking…</string>
+    <string name="link_update_latest">Up to date ✓</string>
+    <string name="link_update_get">Get version %1$s</string>
+    <string name="link_update_failed">Couldn\'t check</string>
     <string name="battery_switch_body">Optional. Helps if the watch sometimes can\'t reach your Proxy after the phone has been idle.</string>
-    <string name="step_battery_title">Turn off battery optimization</string>
-    <string name="step_battery_todo">Tap Allow, then choose Allow so Android doesn\'t pause Puffble. On Samsung phones, also check Settings › Battery › Background usage limits.</string>
-    <string name="step_battery_done">Done. Android won\'t put Puffble to sleep.</string>
-    <string name="action_battery_settings">Settings</string>
     <string name="tip_close_puffco">Tip: close the official Puffco app while you use Puffble. Only one app can control the Proxy at a time.</string>
 
-    <string name="updates_title">Updates</string>
-    <string name="update_current">You have version %1$s.</string>
-    <string name="update_checking">Checking GitHub…</string>
-    <string name="update_latest">You have the latest version (%1$s).</string>
-    <string name="update_available">Version %1$s is available. Download it, then open the file to install. Update the watch app from the Pebble app store.</string>
-    <string name="update_failed">Couldn\'t check right now. Try again later.</string>
-    <string name="action_check">Check</string>
-    <string name="action_download">Download</string>
     <string name="status_setup">Finish setup below</string>
     <string name="status_connecting">Connecting to your Proxy…</string>
     <string name="status_waiting">Ready. Open Puffble on your watch.</string>

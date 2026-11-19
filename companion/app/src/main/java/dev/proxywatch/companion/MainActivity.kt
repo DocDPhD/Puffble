@@ -47,7 +47,6 @@ class MainActivity : Activity() {
     private lateinit var permissionStep: Step
     private lateinit var proxyStep: Step
     private lateinit var watchStep: Step
-    private lateinit var batteryStep: Step
     private lateinit var batterySwitch: Switch
     private lateinit var status: TextView
     private lateinit var statusDot: View
@@ -71,8 +70,6 @@ class MainActivity : Activity() {
         permissionStep = Step(findViewById(R.id.step_permission))
         proxyStep = Step(findViewById(R.id.step_proxy))
         watchStep = Step(findViewById(R.id.step_watch))
-        batteryStep = Step(findViewById(R.id.step_battery))
-        batteryStep.title.setText(R.string.step_battery_title)
         batterySwitch = findViewById(R.id.battery_switch)
         batterySwitch.isChecked = prefs().getBoolean(PREF_BATTERY_GUIDE, false)
         batterySwitch.setOnCheckedChangeListener { _, on ->
@@ -182,18 +179,7 @@ class MainActivity : Activity() {
             if (launch != null) startActivity(launch) else open(PEBBLE_APP_URL)
         }
 
-        // Optional battery step, only while the switch is on.
-        val batteryView = findViewById<View>(R.id.step_battery)
-        batteryView.visibility = if (batterySwitch.isChecked) View.VISIBLE else View.GONE
-        if (batterySwitch.isChecked) {
-            val exempt = ignoringBatteryOptimizations()
-            setStep(batteryStep, 4, done = exempt, enabled = true,
-                body = getString(if (exempt) R.string.step_battery_done else R.string.step_battery_todo),
-                action = getString(if (exempt) R.string.action_battery_settings else R.string.action_allow),
-            ) {
-                if (ignoringBatteryOptimizations()) openBatterySettings() else requestBatteryExemption()
-            }
-        }
+        renderBatteryCard()
 
         // Hold the Proxy link while this screen is open, so the status shows it working.
         if (permission && proxy != null) holdLink() else releaseLink()
@@ -267,30 +253,52 @@ class MainActivity : Activity() {
     private fun installedVersion(): String = packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
 
     private fun setUpUpdates() {
-        val body = findViewById<TextView>(R.id.update_body)
-        val action = findViewById<Button>(R.id.update_action)
-        body.text = getString(R.string.update_current, installedVersion())
-        action.setText(R.string.action_check)
-        action.setOnClickListener { checkForUpdates(body, action) }
+        val link = findViewById<TextView>(R.id.link_update)
+        link.setText(R.string.link_update)
+        link.setOnClickListener { checkForUpdates(link) }
     }
 
-    /** Asks GitHub for the latest release; only runs when the user taps Check. */
-    private fun checkForUpdates(body: TextView, action: Button) {
-        action.isEnabled = false
-        body.setText(R.string.update_checking)
+    /** Asks GitHub for the latest release; only runs when the user taps the link. */
+    private fun checkForUpdates(link: TextView) {
+        link.isEnabled = false
+        link.setText(R.string.link_update_checking)
         scope.launch {
             val latest = runCatching { withContext(Dispatchers.IO) { Updates.fetchLatest() } }.getOrNull()
-            action.isEnabled = true
+            link.isEnabled = true
             when {
-                latest == null -> body.setText(R.string.update_failed)
+                latest == null -> link.setText(R.string.link_update_failed)
                 Updates.isNewer(latest.version, installedVersion()) -> {
-                    body.text = getString(R.string.update_available, latest.version)
-                    action.setText(R.string.action_download)
-                    action.setOnClickListener { open(latest.apkUrl ?: latest.pageUrl) }
+                    // The link becomes the download: tap again to get the new APK.
+                    link.text = getString(R.string.link_update_get, latest.version)
+                    link.setTextColor(getColor(R.color.flame))
+                    link.setOnClickListener { open(latest.apkUrl ?: latest.pageUrl) }
+                    return@launch
                 }
-                else -> body.text = getString(R.string.update_latest, installedVersion())
+                else -> link.setText(R.string.link_update_latest)
             }
+            link.setOnClickListener { checkForUpdates(link) }  // tap again to re-check
         }
+    }
+
+    // ---- optional battery card -----------------------------------------------------
+
+    /** Off: a short explanation. On: the steps expand. Allowed: they collapse and a check shows. */
+    private fun renderBatteryCard() {
+        val on = batterySwitch.isChecked
+        val exempt = ignoringBatteryOptimizations()
+        val body = findViewById<TextView>(R.id.battery_body)
+        val badge = findViewById<View>(R.id.battery_badge)
+        val action = findViewById<Button>(R.id.battery_action)
+        badge.visibility = if (on && exempt) View.VISIBLE else View.GONE
+        body.setText(
+            when {
+                !on -> R.string.battery_switch_body
+                exempt -> R.string.battery_on_done
+                else -> R.string.battery_on_todo
+            }
+        )
+        action.visibility = if (on && !exempt) View.VISIBLE else View.GONE
+        action.setOnClickListener { requestBatteryExemption() }
     }
 
     private fun prefs() = getSharedPreferences("setup", MODE_PRIVATE)
