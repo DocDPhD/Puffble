@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1
+
+Phone app only; the watch app is unchanged from 0.6.0.
+
+- Tidier setup screen: the Puffco tip sits above the setup steps, battery optimization is a single
+  optional card that expands when switched on and collapses with a check once allowed, and
+  "Check for updates" is a footer link beside Help and Privacy.
+
 ## 0.6.0
 
 - Custom one-time session: a fifth page after your profiles. Pick a temperature (400–620°F) and time
