@@ -155,15 +155,25 @@ def store_assets():
         png(os.path.join(out, name), size, size, canvas)
         print("wrote", os.path.relpath(os.path.join(out, name), ROOT))
 
+    # The store shows the banner as a wide strip that crops away the top and bottom (the
+    # dashboard preview keeps roughly the middle 110 px). Everything that matters sits in that
+    # middle band, so the banner reads the same cropped or whole.
     w, h = 720, 320
     canvas = [[bg] * w for _ in range(h)]
-    stamp_grid(canvas, MASCOT, 60, (h - 12 * 18) // 2, 18)
     white, orange = (255, 255, 255, 255), COLORS["F"]
-    title, tag1, tag2 = "PUFFBLE", "A PEBBLE PUFFCO", "COMPANION"
-    tx = 316
-    stamp_text(canvas, title, tx, 72, 9, white)
-    stamp_text(canvas, tag1, tx, 170, 4, orange)
-    stamp_text(canvas, tag2, tx, 210, 4, orange)
+    title, tagline = "PUFFBLE", "A PEBBLE PUFFCO COMPANION"
+    m_scale, t_scale, g_scale = 8, 7, 3
+    m_w, m_h = 12 * m_scale, 12 * m_scale
+    text_w = max(text_width(title, t_scale), text_width(tagline, g_scale))
+    gap = 28
+    x0 = (w - (m_w + gap + text_w)) // 2
+    mid = h // 2
+    stamp_grid(canvas, MASCOT, x0, mid - m_h // 2, m_scale)
+    block_h = 7 * t_scale + 12 + 7 * g_scale
+    ty = mid - block_h // 2
+    tx = x0 + m_w + gap
+    stamp_text(canvas, title, tx, ty, t_scale, white)
+    stamp_text(canvas, tagline, tx, ty + 7 * t_scale + 12, g_scale, orange)
     png(os.path.join(out, "banner_720x320.png"), w, h, canvas)
     print("wrote", os.path.relpath(os.path.join(out, "banner_720x320.png"), ROOT))
 
